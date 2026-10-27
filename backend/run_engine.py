@@ -209,9 +209,10 @@ def compute_verdict(exit_code, stdout, stderr, expect):
 
     return "FAIL"
 
-def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None, scenario=None, user_id="operator", event_callback=None, follow_lab_md=False):
+def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None, scenario=None, user_id="operator", event_callback=None, follow_lab_md=False, grade_slug=None):
     """
     Executes a complete grading run for a lab according to Section 10.
+    Executes 'nusactl grade <slug>' (e.g. glpc-001-1, dok8s-001-1, gladm-001-1).
     If follow_lab_md is True (or state is "solved"), the AI Agent reads the Lab MD,
     executes the instructions on the target environment, and then runs the grader checks.
     """
@@ -252,11 +253,23 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
     is_mock_target = target.get("host") in ["localhost", "mock", "127.0.0.1", "test-vm"] or not target.get("host")
 
     # ==================== AI Lab MD Instruction Execution ====================
-    from .ai_agent import resolve_lab_markdown, extract_instructions_from_lab_md, execute_lab_instructions_agent
+    from .ai_agent import resolve_lab_markdown, extract_instructions_from_lab_md, execute_lab_instructions_agent, resolve_nusactl_grade_slug
 
     lab_md = lab.get("lab_md")
     if not lab_md:
         lab_md, _ = resolve_lab_markdown(lab_id)
+
+    # Resolve course slug
+    c.execute("SELECT slug FROM courses WHERE id = ?", (lab.get("course_id"),))
+    c_row = c.fetchone()
+    resolved_course_slug = c_row["slug"] if c_row else (lab.get("course") or "glpc")
+
+    target_grade_slug = resolve_nusactl_grade_slug(
+        lab,
+        course_slug=resolved_course_slug,
+        custom_slug=grade_slug,
+        lab_md=lab_md
+    )
 
     should_follow = follow_lab_md or (state == "solved")
 
@@ -328,6 +341,53 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
     case_results = []
     debug_logs = []
     cross_checks = []
+
+    # ==================== Execute nusactl grade <slug> ====================
+    tool_grade_cmd = f"nusactl grade {target_grade_slug}"
+    emit_event("tool_grade_start", {
+        "slug": target_grade_slug,
+        "cmd": tool_grade_cmd
+    })
+
+    if is_mock_target:
+        if state == "solved":
+            tool_exit = 0
+            tool_out = (
+                f"[-] Evaluating nusactl grade {target_grade_slug}...\n"
+                f"[+] Case 1: PASSED\n"
+                f"[+] Case 2: PASSED\n"
+                f"[+] Case 3: PASSED\n"
+                f"[*] Result: 100% - All checks passed successfully."
+            )
+            tool_err = ""
+            tool_verdict = "PASS"
+        else:
+            tool_exit = 1
+            tool_out = (
+                f"[-] Evaluating nusactl grade {target_grade_slug}...\n"
+                f"[-] Case 1: FAILED - State does not match expected baseline\n"
+                f"[*] Result: 0% - Lab incomplete."
+            )
+            tool_err = ""
+            tool_verdict = "FAIL"
+    else:
+        tool_exit, tool_out, tool_err = execute_remote_ssh(target, tool_grade_cmd, env_vars=effective_vars)
+        clean_tool_out = (tool_out or "").lower()
+        if tool_exit == 0 or "100%" in clean_tool_out or "all checks passed" in clean_tool_out or ("passed" in clean_tool_out and "failed" not in clean_tool_out):
+            tool_verdict = "PASS"
+        elif "failed" in clean_tool_out or "fail" in clean_tool_out or tool_exit != 0:
+            tool_verdict = "FAIL"
+        else:
+            tool_verdict = "ERROR"
+
+    emit_event("tool_grade_complete", {
+        "slug": target_grade_slug,
+        "cmd": tool_grade_cmd,
+        "exit_code": tool_exit,
+        "stdout": (tool_out or "").strip(),
+        "stderr": (tool_err or "").strip(),
+        "verdict": tool_verdict
+    })
 
     passed_count = 0
     total_count = len(cases)

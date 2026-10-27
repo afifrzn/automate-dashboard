@@ -25,7 +25,7 @@ from .reports import (
     generate_junit_xml
 )
 from .seed_data import load_seed_data
-from .ai_agent import run_grading_remediation_agent, run_course_update_agent, resolve_lab_markdown, extract_instructions_from_lab_md
+from .ai_agent import run_grading_remediation_agent, run_course_update_agent, resolve_lab_markdown, extract_instructions_from_lab_md, resolve_nusactl_grade_slug
 
 # Global event queues for SSE per run_id
 RUN_EVENT_QUEUES = {}
@@ -247,6 +247,7 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                 l["vars"] = json.loads(l["vars_json"] or "{}")
                 l["start"] = json.loads(l["start_json"] or "[]")
                 l["finish"] = json.loads(l["finish_json"] or "[]")
+                l["default_grade_slug"] = resolve_nusactl_grade_slug(l, course_slug=course_slug)
                 c.execute("SELECT * FROM grade_cases WHERE lab_id = ? ORDER BY case_index", (l["id"],))
                 l["grade"] = [dict(case) for case in c.fetchall()]
 
@@ -262,8 +263,16 @@ class AppRequestHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/v1/labs/") and path.endswith("/md"):
             lab_id = path.split("/")[4]
             md, source = resolve_lab_markdown(lab_id)
+            c.execute("SELECT * FROM labs WHERE id = ? OR export_id = ?", (lab_id, lab_id))
+            lab_row = c.fetchone()
+            default_slug = None
+            if lab_row:
+                c.execute("SELECT slug FROM courses WHERE id = ?", (lab_row["course_id"],))
+                c_row = c.fetchone()
+                c_slug = c_row["slug"] if c_row else lab_row["course_id"]
+                default_slug = resolve_nusactl_grade_slug(dict(lab_row), course_slug=c_slug, lab_md=md)
             conn.close()
-            self._send_json({"lab_id": lab_id, "lab_md": md or "", "source": source})
+            self._send_json({"lab_id": lab_id, "lab_md": md or "", "source": source, "default_grade_slug": default_slug})
             return
 
         # Single Lab Detail
@@ -282,6 +291,11 @@ class AppRequestHandler(BaseHTTPRequestHandler):
             if not lab.get("lab_md"):
                 resolved_md, _ = resolve_lab_markdown(lab["id"])
                 lab["lab_md"] = resolved_md or ""
+
+            c.execute("SELECT slug FROM courses WHERE id = ?", (lab["course_id"],))
+            c_row = c.fetchone()
+            c_slug = c_row["slug"] if c_row else lab["course_id"]
+            lab["default_grade_slug"] = resolve_nusactl_grade_slug(lab, course_slug=c_slug, lab_md=lab.get("lab_md"))
 
             c.execute("SELECT * FROM grade_cases WHERE lab_id = ? ORDER BY case_index", (lab["id"],))
             cases = [dict(case) for case in c.fetchall()]
@@ -682,6 +696,7 @@ class AppRequestHandler(BaseHTTPRequestHandler):
             user_vars = body.get("vars", {})
             follow_lab_md = body.get("follow_lab_md", (state == "solved"))
             custom_lab_md = body.get("custom_lab_md")
+            grade_slug = body.get("grade_slug")
 
             c.execute("SELECT * FROM labs WHERE id = ?", (lab_id,))
             lab = c.fetchone()
@@ -736,7 +751,8 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                     scenario=scenario,
                     user_id=user_id,
                     event_callback=dispatch_event,
-                    follow_lab_md=follow_lab_md
+                    follow_lab_md=follow_lab_md,
+                    grade_slug=grade_slug
                 )
 
             t = threading.Thread(target=worker, daemon=True)

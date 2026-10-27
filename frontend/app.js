@@ -563,6 +563,12 @@ async function renderRuns() {
           <option value="both" selected>Both & Cross-Check (Recommended)</option>
         </select>
 
+        <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary);">Platform Grade Slug (<code>nusactl grade &lt;slug&gt;</code>):</label>
+        <div style="display: flex; gap: 6px; margin-bottom: 12px;">
+          <input type="text" id="runGradeSlugInput" placeholder="e.g. glpc-004-1, dok8s-001-1, gladm-001-1" style="flex: 1; font-family: var(--font-mono); font-size: 12px; padding: 6px 10px; background: var(--bg-code); color: #38bdf8; border: 1px solid var(--border-color); border-radius: 4px;">
+          <button class="btn btn-secondary" style="font-size: 11px; white-space: nowrap;" onclick="resetToDefaultGradeSlug()" title="Reset to auto-resolved slug">Auto Slug</button>
+        </div>
+
         <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary);">Variables (e.g. $NUSA_USERNAME):</label>
         <input type="text" id="runVarsInput" placeholder="$NUSA_USERNAME=nusa" style="width: 100%; margin-bottom: 16px;">
 
@@ -633,8 +639,21 @@ async function loadLabMdForSelectedLab() {
     if (infoEl) infoEl.innerHTML = `<span style="color: #4ade80;">Source: ${escapeHtml(data.source)}</span> (${appState.currentLabMd.length} characters)`;
     if (previewEl) previewEl.textContent = appState.currentLabMd || "(No Lab Markdown available for this lab yet. Click 'Edit MD' to paste one.)";
     if (editorInput) editorInput.value = appState.currentLabMd;
+
+    if (data.default_grade_slug) {
+      appState.currentDefaultGradeSlug = data.default_grade_slug;
+      const slugInput = document.getElementById("runGradeSlugInput");
+      if (slugInput) slugInput.value = data.default_grade_slug;
+    }
   } catch (e) {
     if (infoEl) infoEl.textContent = "Failed to load Lab MD";
+  }
+}
+
+function resetToDefaultGradeSlug() {
+  const slugInput = document.getElementById("runGradeSlugInput");
+  if (slugInput && appState.currentDefaultGradeSlug) {
+    slugInput.value = appState.currentDefaultGradeSlug;
   }
 }
 
@@ -709,6 +728,7 @@ async function executeGradingRun() {
   const mode = document.getElementById("runModeSelect").value;
   const rawVars = document.getElementById("runVarsInput").value;
   const followLabMd = document.getElementById("runFollowLabMdCheckbox") ? document.getElementById("runFollowLabMdCheckbox").checked : false;
+  const gradeSlug = document.getElementById("runGradeSlugInput") ? document.getElementById("runGradeSlugInput").value.trim() : "";
 
   const varsObj = {};
   if (rawVars.includes("=")) {
@@ -736,6 +756,7 @@ async function executeGradingRun() {
         target_id: targetId,
         state: state,
         mode: mode,
+        grade_slug: gradeSlug,
         vars: varsObj,
         follow_lab_md: followLabMd,
         custom_lab_md: appState.currentLabMd
@@ -797,7 +818,28 @@ async function executeGradingRun() {
 
     sse.addEventListener("ai_instructions_complete", (e) => {
       const p = JSON.parse(e.data);
-      logBox.innerHTML += `<span style="color: #4ade80; font-weight: 700;">✅ [AI AGENT] ${escapeHtml(p.message)}</span>\n<span style="color: #e2e8f0; font-weight: 600;">🔍 [GRADER] Now evaluating grading test cases:</span>\n\n`;
+      logBox.innerHTML += `<span style="color: #4ade80; font-weight: 700;">✅ [AI AGENT] ${escapeHtml(p.message)}</span>\n\n`;
+      logBox.scrollTop = logBox.scrollHeight;
+    });
+
+    sse.addEventListener("tool_grade_start", (e) => {
+      const p = JSON.parse(e.data);
+      logBox.innerHTML += `<span style="color: #38bdf8; font-weight: 700;">🚀 [TOOL GRADER] Executing platform tool: <code>${escapeHtml(p.cmd)}</code>...</span>\n`;
+      logBox.scrollTop = logBox.scrollHeight;
+    });
+
+    sse.addEventListener("tool_grade_complete", (e) => {
+      const p = JSON.parse(e.data);
+      const isPass = p.verdict === 'PASS';
+      const verdictColor = isPass ? '#4ade80' : (p.verdict === 'ERROR' ? '#fbbf24' : '#f87171');
+      logBox.innerHTML += `  <span style="color: ${verdictColor}; font-weight: 700;">[TOOL GRADER VERDICT: ${p.verdict}]</span> (Exit Code: ${p.exit_code})\n`;
+      if (p.stdout) {
+        logBox.innerHTML += `  <pre style="margin: 4px 0 8px 12px; color: #94a3b8; font-size: 11px; white-space: pre-wrap; font-family: var(--font-mono);">${escapeHtml(p.stdout)}</pre>`;
+      }
+      if (p.stderr) {
+        logBox.innerHTML += `  <pre style="margin: 4px 0 8px 12px; color: #f87171; font-size: 11px; white-space: pre-wrap; font-family: var(--font-mono);">${escapeHtml(p.stderr)}</pre>`;
+      }
+      logBox.innerHTML += `<span style="color: #e2e8f0; font-weight: 600;">🔍 [MANUAL GRADER] Evaluating case-by-case checks:</span>\n`;
       logBox.scrollTop = logBox.scrollHeight;
     });
 

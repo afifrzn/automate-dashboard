@@ -542,6 +542,64 @@ def resolve_lab_markdown(lab_id):
     return None, "No Lab MD found"
 
 
+COURSE_PREFIX_MAP = {
+    "gitlab-fundamental": "glpc",
+    "gitlab_fundamental": "glpc",
+    "glpc": "glpc",
+    "gladm": "gladm",
+    "gitlab-admin": "gladm",
+    "dok8s": "dok8s",
+    "devops-k8s": "dok8s"
+}
+
+def resolve_nusactl_grade_slug(lab, course_slug=None, custom_slug=None, lab_md=None):
+    """
+    Resolves the exact nusactl grade slug (e.g. glpc-001-1, dok8s-001-1, gladm-001-1).
+    1. Returns custom_slug if explicitly provided by operator.
+    2. If Lab MD contains 'nusactl start <slug>', extracts <slug> directly.
+    3. Maps known course slugs to standard platform prefixes:
+       - gitlab-fundamental -> glpc
+       - gladm -> gladm
+       - dok8s -> dok8s
+    4. Formats as <prefix>-<chapter>-<part>.
+    """
+    if custom_slug and str(custom_slug).strip():
+        return str(custom_slug).strip()
+
+    # 1. Check if Lab MD has 'nusactl start <slug>'
+    if lab_md:
+        m = re.search(r'nusactl\s+start\s+([a-zA-Z0-9_\-]+)', lab_md)
+        if m:
+            return m.group(1).strip()
+
+    chapter = str(lab.get("chapter", "001")).zfill(3)
+    part = str(lab.get("part", "1"))
+
+    # Try mapping from course slug
+    prefix = None
+    if course_slug:
+        c_clean = str(course_slug).lower().strip()
+        prefix = COURSE_PREFIX_MAP.get(c_clean)
+        if not prefix:
+            for k, p in COURSE_PREFIX_MAP.items():
+                if k in c_clean:
+                    prefix = p
+                    break
+
+    # Try from lab slug if set
+    lab_slug = str(lab.get("slug") or "").strip()
+    if not prefix and lab_slug:
+        for k, p in COURSE_PREFIX_MAP.items():
+            if k in lab_slug:
+                prefix = p
+                break
+
+    if not prefix:
+        prefix = (course_slug or "glpc").split("-")[0]
+
+    return f"{prefix}-{chapter}-{part}"
+
+
 def extract_instructions_from_lab_md(lab_md, target=None, env_vars=None, lab=None):
     """
     Parses Lab Markdown and extracts sequential executable instruction steps.
