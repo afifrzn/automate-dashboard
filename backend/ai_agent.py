@@ -851,6 +851,7 @@ def execute_lab_instructions_agent(target, steps, env_vars=None, is_mock=False, 
 
         emit("ai_step_done", {
             "step": s_num,
+            "total": total,
             "cmd": raw,
             "exit_code": exit_code,
             "stdout": (stdout or "")[:300],

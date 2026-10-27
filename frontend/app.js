@@ -1058,19 +1058,22 @@ async function executeGradingRun() {
 
     sse.addEventListener("ai_instructions_parsed", (e) => {
       const p = JSON.parse(e.data);
+      appState.totalAiSteps = p.total_steps;
       logBox.innerHTML += `<span style="color: #38bdf8; font-weight: 700;">📋 [AI AGENT] Extracted ${p.total_steps} instruction steps from Lab MD</span>\n<span style="color: #fbbf24; font-weight: 600;">⚡ [AI AGENT] Following instructions on target lab VM...</span>\n`;
       logBox.scrollTop = logBox.scrollHeight;
     });
 
     sse.addEventListener("ai_step_start", (e) => {
       const p = JSON.parse(e.data);
+      const total = p.total || appState.totalAiSteps || "?";
       const cleanCmd = (p.cmd || "").replace(/\r?\n/g, " ").trim();
-      logBox.innerHTML += `<div id="ai-step-${p.step}" style="margin: 2px 0; line-height: 1.5;"><span style="color: #60a5fa; font-weight: 600;">[Step ${p.step}/${p.total}]</span> <code style="color: #f1f5f9;">${escapeHtml(cleanCmd)}</code> <span style="color: #fbbf24; font-size: 11px;">... running</span></div>`;
+      logBox.innerHTML += `<div id="ai-step-${p.step}" style="margin: 2px 0; line-height: 1.5;"><span style="color: #60a5fa; font-weight: 600;">[Step ${p.step}/${total}]</span> <code style="color: #f1f5f9;">${escapeHtml(cleanCmd)}</code> <span style="color: #fbbf24; font-size: 11px;">... running</span></div>`;
       logBox.scrollTop = logBox.scrollHeight;
     });
 
     sse.addEventListener("ai_step_done", (e) => {
       const p = JSON.parse(e.data);
+      const total = p.total || appState.totalAiSteps || "?";
       const ok = p.exit_code === 0;
       const statusColor = ok ? '#4ade80' : '#f87171';
       const cleanCmd = (p.cmd || "").replace(/\r?\n/g, " ").trim();
@@ -1081,7 +1084,7 @@ async function executeGradingRun() {
         previewOut = p.stderr.trim().split(/\r?\n/)[0].trim();
       }
       const stepEl = document.getElementById(`ai-step-${p.step}`);
-      const stepContent = `<span style="color: #60a5fa; font-weight: 600;">[Step ${p.step}/${p.total}]</span> <code style="color: #f1f5f9;">${escapeHtml(cleanCmd)}</code> <span style="color: ${statusColor}; font-weight: 700; font-size: 11px;">&rarr; Exit: ${p.exit_code} ${ok ? 'OK' : 'FAIL'}</span>${previewOut ? ` <span style="color: #94a3b8; font-size: 11px;">| ${escapeHtml(previewOut)}</span>` : ''}`;
+      const stepContent = `<span style="color: #60a5fa; font-weight: 600;">[Step ${p.step}/${total}]</span> <code style="color: #f1f5f9;">${escapeHtml(cleanCmd)}</code> <span style="color: ${statusColor}; font-weight: 700; font-size: 11px;">&rarr; Exit: ${p.exit_code} ${ok ? 'OK' : 'FAIL'}</span>${previewOut ? ` <span style="color: #94a3b8; font-size: 11px;">| ${escapeHtml(previewOut)}</span>` : ''}`;
 
       if (stepEl) {
         stepEl.innerHTML = stepContent;
