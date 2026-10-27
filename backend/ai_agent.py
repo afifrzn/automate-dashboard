@@ -613,7 +613,9 @@ def extract_instructions_from_lab_md(lab_md, target=None, env_vars=None, lab=Non
     target = target or {}
     env_vars = env_vars or {}
     username = target.get("nusactl_username") or target.get("user") or env_vars.get("NUSA_USERNAME") or "operator"
-    email = f"{username}@aditraining.id"
+    git_username = env_vars.get("GIT_USERNAME") or target.get("git_username") or username
+    git_email = env_vars.get("GIT_EMAIL") or target.get("git_email") or f"{git_username}@aditraining.id"
+    email = git_email
 
     # Detect git / push credentials in markdown
     push_user = None
@@ -674,8 +676,10 @@ def extract_instructions_from_lab_md(lab_md, target=None, env_vars=None, lab=Non
             content = content.replace("[USERNAME_ADINUSA]", username)
             content = content.replace("USERNAME_ADINUSA", username)
             content = content.replace("[username_adinusa]", username)
-            content = content.replace("[username akun git]", username)
-            content = content.replace("[email akun git]", email)
+            content = content.replace("[username akun git]", git_username)
+            content = content.replace("username akun git", git_username)
+            content = content.replace("[email akun git]", git_email)
+            content = content.replace("email akun git", git_email)
 
             if content:
                 cleaned_cmds.append(f"cat << 'EOF' > {editor_file}\n{content}\nEOF")
@@ -707,11 +711,19 @@ def extract_instructions_from_lab_md(lab_md, target=None, env_vars=None, lab=Non
         cmd = cmd.replace("[USERNAME_ADINUSA]", username)
         cmd = cmd.replace("USERNAME_ADINUSA", username)
         cmd = cmd.replace("[username_adinusa]", username)
-        cmd = cmd.replace("[username akun git]", username)
-        cmd = cmd.replace("[email akun git]", email)
-        cmd = cmd.replace("[username]", username)
-        cmd = cmd.replace("[USERNAME]", username)
-        cmd = cmd.replace("[email]", email)
+        cmd = cmd.replace("[username akun git]", git_username)
+        cmd = cmd.replace("username akun git", git_username)
+        cmd = cmd.replace("[email akun git]", git_email)
+        cmd = cmd.replace("email akun git", git_email)
+        cmd = cmd.replace("[username]", git_username)
+        cmd = cmd.replace("[USERNAME]", git_username)
+        cmd = cmd.replace("[email]", git_email)
+
+        # Explicit git config global override
+        if "git config --global user.name" in cmd:
+            cmd = f'git config --global user.name "{git_username}"'
+        if "git config --global user.email" in cmd:
+            cmd = f'git config --global user.email "{git_email}"'
 
         if "$NUSA_USERNAME" in cmd:
             cmd = cmd.replace("$NUSA_USERNAME", username)

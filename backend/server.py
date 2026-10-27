@@ -689,11 +689,25 @@ class AppRequestHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/v1/labs/") and path.endswith("/parse-md"):
             lab_id = path.split("/")[4]
             custom_md = body.get("lab_md")
+            git_user = body.get("git_username")
+            git_email = body.get("git_email")
+            target_id = body.get("target_id")
+            env_vars = {}
+            if git_user:
+                env_vars["GIT_USERNAME"] = git_user
+            if git_email:
+                env_vars["GIT_EMAIL"] = git_email
+            target_dict = {}
+            if target_id:
+                c.execute("SELECT * FROM targets WHERE id = ?", (target_id,))
+                t_row = c.fetchone()
+                if t_row:
+                    target_dict = dict(t_row)
             if custom_md:
                 lab_md = custom_md
             else:
                 lab_md, _ = resolve_lab_markdown(lab_id)
-            steps = extract_instructions_from_lab_md(lab_md)
+            steps = extract_instructions_from_lab_md(lab_md, target=target_dict, env_vars=env_vars)
             conn.close()
             self._send_json({"lab_id": lab_id, "total_steps": len(steps), "steps": steps})
             return
@@ -706,6 +720,12 @@ class AppRequestHandler(BaseHTTPRequestHandler):
             mode = body.get("mode", "manual")
             scenario = body.get("scenario")
             user_vars = body.get("vars", {})
+            git_username = body.get("git_username")
+            git_email = body.get("git_email")
+            if git_username:
+                user_vars["GIT_USERNAME"] = git_username
+            if git_email:
+                user_vars["GIT_EMAIL"] = git_email
             follow_lab_md = body.get("follow_lab_md", (state == "solved"))
             custom_lab_md = body.get("custom_lab_md")
             grade_slug = body.get("grade_slug")
