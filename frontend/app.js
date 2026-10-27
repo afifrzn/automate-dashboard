@@ -594,16 +594,38 @@ async function renderRuns() {
             <div style="display: flex; gap: 4px;">
               <button class="btn btn-primary" style="font-size: 10px; padding: 2px 7px; background: #8b5cf6;" onclick="runDirectFromMd()" title="Run 4-Step Pipeline directly from this Markdown">⚡ Run MD</button>
               <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="previewParsedLabSteps()" title="Preview executable commands extracted by AI">🤖 Steps</button>
-              <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="toggleEditLabMd()" title="Edit or paste custom Markdown instructions">✏️ Edit</button>
+              <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="toggleEditLabMd()" title="Edit or paste custom Markdown instructions">✏️ Edit MD</button>
             </div>
           </div>
           <div id="labMdInfo" style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">Loading Lab MD...</div>
-          <div id="labMdPreview" style="background: var(--bg-code); border: 1px solid var(--border-color); border-radius: 4px; padding: 8px; max-height: 130px; overflow-y: auto; font-family: var(--font-mono); font-size: 11px; white-space: pre-wrap; color: #cbd5e1;"></div>
+          <div id="labMdPreview" style="background: var(--bg-code); border: 1px solid var(--border-color); border-radius: 4px; padding: 8px; max-height: 120px; overflow-y: auto; font-family: var(--font-mono); font-size: 11px; white-space: pre-wrap; color: #cbd5e1;"></div>
           <div id="labMdEditorContainer" style="display: none; margin-top: 8px;">
             <textarea id="labMdEditorInput" style="width: 100%; height: 160px; font-family: var(--font-mono); font-size: 11px; background: var(--bg-code); color: #f8fafc; border: 1px solid var(--border-color); border-radius: 4px; padding: 8px; box-sizing: border-box;" placeholder="Paste or edit Lab Markdown here..."></textarea>
             <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px;">
               <button class="btn btn-secondary" style="font-size: 11px; padding: 3px 8px;" onclick="toggleEditLabMd()">Cancel</button>
               <button class="btn btn-primary" style="font-size: 11px; padding: 3px 8px;" onclick="saveCustomLabMd()">💾 Save Lab MD</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dynamic Grader Test Cases Card (Non-hardcoded) -->
+        <div class="card" style="margin-top: 12px; border: 1px solid var(--border-color); background: var(--bg-secondary);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <strong style="font-size: 12px; color: var(--text-primary);">🧪 Grader Test Cases</strong>
+              <span id="labGradeCountBadge" class="badge badge-skip" style="font-size: 10px;">0 Cases</span>
+            </div>
+            <div style="display: flex; gap: 4px;">
+              <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="toggleEditLabGrade()" title="Edit or paste dynamic test cases JSON">✏️ Edit Grader</button>
+            </div>
+          </div>
+          <div id="labGradeInfo" style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">Dynamic test cases loaded from lab configuration</div>
+          <div id="labGradePreview" style="background: var(--bg-code); border: 1px solid var(--border-color); border-radius: 4px; padding: 8px; max-height: 140px; overflow-y: auto; font-family: var(--font-mono); font-size: 11px; color: #cbd5e1;"></div>
+          <div id="labGradeEditorContainer" style="display: none; margin-top: 8px;">
+            <textarea id="labGradeEditorInput" style="width: 100%; height: 180px; font-family: var(--font-mono); font-size: 11px; background: var(--bg-code); color: #f8fafc; border: 1px solid var(--border-color); border-radius: 4px; padding: 8px; box-sizing: border-box;" placeholder='Paste or edit Grader Test Cases JSON, e.g. [{"name": "case 1...", "cmd": "...", "expect": "..."}]'></textarea>
+            <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px;">
+              <button class="btn btn-secondary" style="font-size: 11px; padding: 3px 8px;" onclick="toggleEditLabGrade()">Cancel</button>
+              <button class="btn btn-primary" style="font-size: 11px; padding: 3px 8px;" onclick="saveCustomLabGrade()">💾 Save Grader</button>
             </div>
           </div>
         </div>
@@ -692,9 +714,15 @@ async function loadLabMdForSelectedLab() {
     const res = await fetch(`${API_BASE}/labs/${labId}/md`);
     const data = await res.json();
     appState.currentLabMd = data.lab_md || "";
+    appState.currentLabGrade = data.grade || [];
+    appState.currentLabVars = data.vars || {};
+    appState.customGradeJson = null;
+
     if (infoEl) infoEl.innerHTML = `<span style="color: #4ade80;">Source: ${escapeHtml(data.source)}</span> (${appState.currentLabMd.length} characters)`;
     if (previewEl) previewEl.textContent = appState.currentLabMd || "(No Lab Markdown available for this lab yet. Click 'Edit MD' to paste one.)";
     if (editorInput) editorInput.value = appState.currentLabMd;
+
+    renderLabGradePreview();
 
     if (data.default_grade_slug) {
       appState.currentDefaultGradeSlug = data.default_grade_slug;
@@ -703,6 +731,80 @@ async function loadLabMdForSelectedLab() {
     }
   } catch (e) {
     if (infoEl) infoEl.textContent = "Failed to load Lab MD";
+  }
+}
+
+function renderLabGradePreview() {
+  const countBadge = document.getElementById("labGradeCountBadge");
+  const previewEl = document.getElementById("labGradePreview");
+  const editorInput = document.getElementById("labGradeEditorInput");
+  const cases = appState.currentLabGrade || [];
+
+  if (countBadge) {
+    countBadge.textContent = `${cases.length} Cases`;
+    countBadge.className = cases.length > 0 ? "badge badge-pass" : "badge badge-skip";
+  }
+
+  if (previewEl) {
+    if (cases.length === 0) {
+      previewEl.innerHTML = '<span style="color: var(--text-muted);">(No predefined test cases for this lab. Click "Edit Grader" to define or paste custom test cases JSON)</span>';
+    } else {
+      previewEl.innerHTML = cases.map((c, idx) => `
+        <div style="margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px dashed rgba(255,255,255,0.08);">
+          <div style="font-weight: 700; color: #38bdf8;">${escapeHtml(c.name || `case ${c.case_index || idx + 1}`)}</div>
+          <div style="color: #a7f3d0; font-size: 10px; margin-top: 2px;">$ ${escapeHtml(c.cmd || '')}</div>
+          <div style="color: #fde047; font-size: 10px;">Expect: <code style="color: #fde047;">${escapeHtml(String(c.expect || ''))}</code></div>
+        </div>
+      `).join('');
+    }
+  }
+
+  if (editorInput) {
+    editorInput.value = JSON.stringify(cases, null, 2);
+  }
+}
+
+function toggleEditLabGrade() {
+  const container = document.getElementById("labGradeEditorContainer");
+  const preview = document.getElementById("labGradePreview");
+  if (!container) return;
+  const isOpen = container.style.display !== "none";
+  container.style.display = isOpen ? "none" : "block";
+  if (preview) preview.style.display = isOpen ? "block" : "none";
+}
+
+async function saveCustomLabGrade() {
+  const select = document.getElementById("runLabSelect");
+  if (!select) return;
+  const labId = select.value;
+  const val = document.getElementById("labGradeEditorInput").value.trim();
+
+  let parsedCases = null;
+  try {
+    parsedCases = JSON.parse(val);
+  } catch (err) {
+    alert(`Invalid JSON format: ${err.message}`);
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/labs/${labId}/grade`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "X-User-Role": appState.userRole,
+        "X-User-Id": appState.userId
+      },
+      body: JSON.stringify(parsedCases)
+    });
+    const data = await res.json();
+    showToast(`Grader test cases saved (${data.cases_count} cases)`);
+    appState.currentLabGrade = Array.isArray(parsedCases) ? parsedCases : (parsedCases.grade || []);
+    appState.customGradeJson = parsedCases;
+    toggleEditLabGrade();
+    renderLabGradePreview();
+  } catch (e) {
+    alert(`Failed to save grader cases: ${e.message}`);
   }
 }
 
@@ -867,7 +969,8 @@ async function executeGradingRun() {
         workflow: workflow,
         vars: varsObj,
         follow_lab_md: followLabMd,
-        custom_lab_md: appState.currentLabMd
+        custom_lab_md: appState.currentLabMd,
+        custom_grade: appState.customGradeJson || appState.currentLabGrade
       })
     });
     const data = await res.json();

@@ -259,20 +259,32 @@ class AppRequestHandler(BaseHTTPRequestHandler):
             self._send_json(labs)
             return
 
-        # Lab Markdown Instructions
+        # Lab Markdown Instructions & Grader Cases
         if path.startswith("/api/v1/labs/") and path.endswith("/md"):
             lab_id = path.split("/")[4]
             md, source = resolve_lab_markdown(lab_id)
             c.execute("SELECT * FROM labs WHERE id = ? OR export_id = ?", (lab_id, lab_id))
             lab_row = c.fetchone()
             default_slug = None
+            grade_cases = []
+            lab_vars = {}
             if lab_row:
                 c.execute("SELECT slug FROM courses WHERE id = ?", (lab_row["course_id"],))
                 c_row = c.fetchone()
                 c_slug = c_row["slug"] if c_row else lab_row["course_id"]
                 default_slug = resolve_nusactl_grade_slug(dict(lab_row), course_slug=c_slug, lab_md=md)
+                lab_vars = json.loads(lab_row["vars_json"] or "{}")
+                c.execute("SELECT * FROM grade_cases WHERE lab_id = ? ORDER BY case_index", (lab_row["id"],))
+                grade_cases = [dict(r) for r in c.fetchall()]
             conn.close()
-            self._send_json({"lab_id": lab_id, "lab_md": md or "", "source": source, "default_grade_slug": default_slug})
+            self._send_json({
+                "lab_id": lab_id,
+                "lab_md": md or "",
+                "source": source,
+                "default_grade_slug": default_slug,
+                "vars": lab_vars,
+                "grade": grade_cases
+            })
             return
 
         # Single Lab Detail
@@ -706,9 +718,32 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": "Target not found"}, 404)
                 return
 
+            custom_grade = body.get("custom_grade") or body.get("custom_grade_json") or body.get("grade_cases")
+            parsed_custom_cases = None
+            if custom_grade:
+                if isinstance(custom_grade, str):
+                    try:
+                        parsed_custom_cases = json.loads(custom_grade)
+                    except Exception:
+                        parsed_custom_cases = None
+                else:
+                    parsed_custom_cases = custom_grade
+
             # Support ad-hoc / direct MD run without preexisting lab in database
             if (not lab_id or lab_id in ["custom", "adhoc", "ad-hoc"]) and custom_lab_md:
                 resolved_slug = resolve_nusactl_grade_slug({}, custom_slug=grade_slug, lab_md=custom_lab_md)
+                adhoc_cases = []
+                adhoc_vars = user_vars
+                if parsed_custom_cases:
+                    if isinstance(parsed_custom_cases, dict):
+                        adhoc_cases = parsed_custom_cases.get("grade") or []
+                        if "vars" in parsed_custom_cases and isinstance(parsed_custom_cases["vars"], dict):
+                            adhoc_vars = {**adhoc_vars, **parsed_custom_cases["vars"]}
+                    elif isinstance(parsed_custom_cases, list):
+                        adhoc_cases = parsed_custom_cases
+                if not adhoc_cases:
+                    adhoc_cases = synthesize_cases_from_lab_md(custom_lab_md, target=dict(target))
+
                 lab_dict = {
                     "id": f"adhoc-{uuid.uuid4().hex[:8]}",
                     "export_id": f"adhoc-{resolved_slug}",
@@ -716,14 +751,14 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                     "chapter": resolved_slug.split("-")[1] if len(resolved_slug.split("-")) > 1 else "001",
                     "part": resolved_slug.split("-")[2] if len(resolved_slug.split("-")) > 2 else "1",
                     "description": f"Ad-hoc Lab ({resolved_slug})",
-                    "vars_json": "{}",
+                    "vars_json": json.dumps(adhoc_vars),
                     "start_json": "[]",
                     "finish_json": "[]",
                     "slug": resolved_slug,
-                    "vars": user_vars,
+                    "vars": adhoc_vars,
                     "start": [],
                     "finish": [],
-                    "grade": synthesize_cases_from_lab_md(custom_lab_md, target=dict(target)),
+                    "grade": adhoc_cases,
                     "lab_md": custom_lab_md
                 }
                 lab = lab_dict
@@ -742,8 +777,16 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                 if custom_lab_md:
                     lab_dict["lab_md"] = custom_lab_md
 
-                c.execute("SELECT * FROM grade_cases WHERE lab_id = ? ORDER BY case_index", (lab["id"],))
-                lab_dict["grade"] = [dict(case) for case in c.fetchall()]
+                if parsed_custom_cases:
+                    if isinstance(parsed_custom_cases, dict):
+                        lab_dict["grade"] = parsed_custom_cases.get("grade") or []
+                        if "vars" in parsed_custom_cases and isinstance(parsed_custom_cases["vars"], dict):
+                            lab_dict["vars"].update(parsed_custom_cases["vars"])
+                    elif isinstance(parsed_custom_cases, list):
+                        lab_dict["grade"] = parsed_custom_cases
+                else:
+                    c.execute("SELECT * FROM grade_cases WHERE lab_id = ? ORDER BY case_index", (lab["id"],))
+                    lab_dict["grade"] = [dict(case) for case in c.fetchall()]
 
             run_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{lab['export_id']}-{state}"
             now = datetime.now(timezone.utc).isoformat()
@@ -990,6 +1033,51 @@ class AppRequestHandler(BaseHTTPRequestHandler):
             conn.close()
             log_activity(user_id, "update_lab_md", "lab", lab_id, None, {"chars": len(new_md)})
             self._send_json({"status": "updated", "lab_id": lab_id, "chars": len(new_md)})
+            return
+
+        # Update Lab Grader Cases & Variables
+        if path.startswith("/api/v1/labs/") and path.endswith("/grade"):
+            lab_id = path.split("/")[4]
+            c.execute("SELECT id FROM labs WHERE id = ? OR export_id = ?", (lab_id, lab_id))
+            lab_row = c.fetchone()
+            if not lab_row:
+                conn.close()
+                self._send_json({"error": "Lab not found"}, 404)
+                return
+            real_lab_id = lab_row["id"]
+
+            cases = []
+            if isinstance(body, list):
+                cases = body
+            elif isinstance(body, dict):
+                cases = body.get("grade") or body.get("cases") or []
+                if "vars" in body and isinstance(body["vars"], dict):
+                    c.execute("UPDATE labs SET vars_json = ? WHERE id = ?", (json.dumps(body["vars"]), real_lab_id))
+                if "start" in body and isinstance(body["start"], list):
+                    c.execute("UPDATE labs SET start_json = ? WHERE id = ?", (json.dumps(body["start"]), real_lab_id))
+                if "finish" in body and isinstance(body["finish"], list):
+                    c.execute("UPDATE labs SET finish_json = ? WHERE id = ?", (json.dumps(body["finish"]), real_lab_id))
+
+            if cases:
+                c.execute("DELETE FROM grade_cases WHERE lab_id = ?", (real_lab_id,))
+                for idx, item in enumerate(cases):
+                    case_id = item.get("id") or str(uuid.uuid4())
+                    c_idx = item.get("case_index", idx + 1)
+                    c_name = item.get("name", f"case {c_idx}")
+                    c_cmd = item.get("cmd", "")
+                    c_expect = str(item.get("expect", ""))
+                    c_hint = item.get("hint", "")
+                    c_debug = str(item.get("debug", "true"))
+                    c_log = item.get("log_cmd", "")
+                    c.execute("""
+                        INSERT INTO grade_cases (id, lab_id, case_index, name, cmd, expect, hint, debug, log_cmd)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (case_id, real_lab_id, c_idx, c_name, c_cmd, c_expect, c_hint, c_debug, c_log))
+
+            conn.commit()
+            conn.close()
+            log_activity(user_id, "update_lab_grade", "lab", real_lab_id, None, {"cases_count": len(cases)})
+            self._send_json({"status": "updated", "lab_id": real_lab_id, "cases_count": len(cases)})
             return
 
         # Update Manifest Row

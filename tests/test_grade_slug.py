@@ -240,5 +240,60 @@ $ echo "Hello" > README.md
         self.assertEqual(pipe_complete["stage_4_tool"]["verdict"], "PASS")
         self.assertEqual(pipe_complete["final_verdict"], "PASS")
 
+    def test_dynamic_non_hardcoded_grader(self):
+        """Verify that grade cases are completely dynamic and not overridden by hardcoded blocks."""
+        custom_cases = [
+            {
+                "case_index": 1,
+                "name": "case 1 - Custom Dynamic Check Alpha",
+                "cmd": "echo 'alpha-ok'",
+                "expect": "alpha-ok"
+            },
+            {
+                "case_index": 2,
+                "name": "case 2 - Custom Dynamic Check Beta",
+                "cmd": "echo 'beta-ok'",
+                "expect": "beta-ok"
+            }
+        ]
+        lab = {
+            "id": "dynamic-lab-01",
+            "export_id": "dynamic-lab-01",
+            "chapter": "005",
+            "part": "1",
+            "course": "glpc",
+            "description": "Dynamic Grader Test",
+            "vars": {},
+            "start": [],
+            "finish": [],
+            "grade": custom_cases,
+            "lab_md": "```console\n$ echo dynamic\n```"
+        }
+        target = {
+            "id": "mock-vm",
+            "host": "mock",
+            "user": "student"
+        }
+
+        events = []
+        def callback(event_type, payload):
+            events.append((event_type, payload))
+
+        run_lab(
+            run_id="test-run-dynamic",
+            target=target,
+            lab=lab,
+            workflow="4step",
+            event_callback=callback,
+            grade_slug="glpc-005-1"
+        )
+
+        # Confirm exactly our 2 custom cases ran in manual grade stage
+        case_starts = [e[1]["name"] for e in events if e[0] == "case_start"]
+        self.assertEqual(case_starts, [
+            "case 1 - Custom Dynamic Check Alpha",
+            "case 2 - Custom Dynamic Check Beta"
+        ])
+
 if __name__ == "__main__":
     unittest.main()
