@@ -699,53 +699,101 @@ async function renderRuns() {
           <div style="color: var(--text-muted);">Select options on the left and click "Start Grading Execution" to watch live results stream in real-time...</div>
         </div>
 
-        <!-- Live SSE Case Breakdown: Output, Pass Cases, Fail Cases -->
-        <div id="liveResultsPanel" style="margin-top: 14px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <strong style="font-size: 13px; color: var(--text-primary);">📊 Test Cases Results Breakdown</strong>
-              <span id="liveCaseStatsSummary" class="badge badge-skip">0 / 0 Cases</span>
-            </div>
-            <div id="liveOverallPill" style="font-size: 11px; font-weight: 600; color: var(--text-muted);">
-              Awaiting execution...
-            </div>
-          </div>
+        <!-- Live SSE Case Breakdown (Divided: 1. Manual Bash, 2. Automated nusactl) -->
+        <div id="liveResultsPanel" style="margin-top: 14px; display: flex; flex-direction: column; gap: 14px;">
 
-          <!-- Pass / Fail Badges Row -->
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
-            <!-- Passed Cases Box -->
-            <div style="background: rgba(34, 197, 94, 0.08); border: 1px solid #22c55e; border-radius: 6px; padding: 10px 12px;">
+          <!-- SECTION 1: MANUAL BASH TEST CASES -->
+          <div style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <strong style="font-size: 13px; color: var(--text-primary);">🛠️ 1. Manual Test Cases (Manual Bash)</strong>
+                <span id="liveCaseStatsSummary" class="badge badge-skip">0 / 0 Cases</span>
+              </div>
+              <div id="liveOverallPill" style="font-size: 11px; font-weight: 600; color: var(--text-muted);">
+                Awaiting manual execution...
+              </div>
+            </div>
+
+            <!-- Manual Pass / Fail Badges Row -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+              <!-- Passed Cases Box -->
+              <div style="background: rgba(34, 197, 94, 0.08); border: 1px solid #22c55e; border-radius: 6px; padding: 10px 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                  <span style="font-size: 12px; font-weight: 700; color: #4ade80;">✅ Manual Cases Passed:</span>
+                  <span id="passedCountBadge" class="badge badge-pass" style="font-size: 11px;">0</span>
+                </div>
+                <div id="passedCasesPills" style="display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; align-items: center;">
+                  <span style="font-size: 11px; color: var(--text-muted);">None yet</span>
+                </div>
+              </div>
+
+              <!-- Failed Cases Box -->
+              <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid #ef4444; border-radius: 6px; padding: 10px 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                  <span style="font-size: 12px; font-weight: 700; color: #f87171;">❌ Manual Cases Failed:</span>
+                  <span id="failedCountBadge" class="badge badge-fail" style="font-size: 11px;">0</span>
+                </div>
+                <div id="failedCasesPills" style="display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; align-items: center;">
+                  <span style="font-size: 11px; color: var(--text-muted);">None yet</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Detailed Case Output Inspection Container -->
+            <div>
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <span style="font-size: 12px; font-weight: 700; color: #4ade80;">✅ Case Number That Pass:</span>
-                <span id="passedCountBadge" class="badge badge-pass" style="font-size: 11px;">0</span>
+                <span style="font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase;">Manual Case Outputs & Inspection:</span>
+                <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="toggleLiveCaseDetails()" id="liveDetailsToggleBtn">Hide Details</button>
               </div>
-              <div id="passedCasesPills" style="display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; align-items: center;">
-                <span style="font-size: 11px; color: var(--text-muted);">None yet</span>
-              </div>
-            </div>
-
-            <!-- Failed Cases Box -->
-            <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid #ef4444; border-radius: 6px; padding: 10px 12px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <span style="font-size: 12px; font-weight: 700; color: #f87171;">❌ Case Number That Failed:</span>
-                <span id="failedCountBadge" class="badge badge-fail" style="font-size: 11px;">0</span>
-              </div>
-              <div id="failedCasesPills" style="display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; align-items: center;">
-                <span style="font-size: 11px; color: var(--text-muted);">None yet</span>
+              <div id="liveCasesTable" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-code);">
+                <div style="padding: 12px; color: var(--text-muted); font-size: 11px; text-align: center;">Case outputs and command diagnostics will appear here live...</div>
               </div>
             </div>
           </div>
 
-          <!-- Detailed Case Output Inspection Container -->
-          <div>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-              <span style="font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase;">Detailed Case Outputs & Inspection:</span>
-              <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="toggleLiveCaseDetails()" id="liveDetailsToggleBtn">Hide Details</button>
+          <!-- SECTION 2: AUTOMATED PLATFORM GRADE (nusactl grade) -->
+          <div style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <strong style="font-size: 13px; color: var(--text-primary);">🚀 2. Automated Platform Grade (nusactl grade)</strong>
+                <span id="toolGradeStatusBadge" class="badge badge-skip">Awaiting nusactl...</span>
+              </div>
+              <div id="toolScoreBadge" style="font-size: 12px; font-weight: 700; color: var(--text-muted);">
+                Score: - / 100
+              </div>
             </div>
-            <div id="liveCasesTable" style="max-height: 220px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-code);">
-              <div style="padding: 12px; color: var(--text-muted); font-size: 11px; text-align: center;">Case outputs and command diagnostics will appear here live...</div>
+
+            <!-- nusactl Pass / Fail Badges Row -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+              <!-- nusactl Passed Cases Box -->
+              <div style="background: rgba(34, 197, 94, 0.08); border: 1px solid #22c55e; border-radius: 6px; padding: 10px 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                  <span style="font-size: 12px; font-weight: 700; color: #4ade80;">✅ nusactl Cases Passed:</span>
+                  <span id="toolPassedCountBadge" class="badge badge-pass" style="font-size: 11px;">0</span>
+                </div>
+                <div id="toolPassedCasesPills" style="display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; align-items: center;">
+                  <span style="font-size: 11px; color: var(--text-muted);">None yet</span>
+                </div>
+              </div>
+
+              <!-- nusactl Failed Cases Box -->
+              <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid #ef4444; border-radius: 6px; padding: 10px 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                  <span style="font-size: 12px; font-weight: 700; color: #f87171;">❌ nusactl Cases Failed:</span>
+                  <span id="toolFailedCountBadge" class="badge badge-fail" style="font-size: 11px;">0</span>
+                </div>
+                <div id="toolFailedCasesPills" style="display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; align-items: center;">
+                  <span style="font-size: 11px; color: var(--text-muted);">None yet</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- nusactl Output Preview -->
+            <div id="toolGradeOutputContainer" style="border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-code); padding: 10px 12px; font-family: var(--font-mono); font-size: 11px; color: #94a3b8; max-height: 140px; overflow-y: auto;">
+              nusactl output preview will appear here upon Stage 4 completion...
             </div>
           </div>
+
         </div>
       </div>
     </div>
@@ -1035,7 +1083,7 @@ async function executeGradingRun() {
   const logBox = document.getElementById("runProgressBox");
   const liveBadge = document.getElementById("runLiveBadge");
 
-  // Live Case Breakdown UI elements
+  // Live Case Breakdown UI elements (Manual Bash)
   const passedCases = [];
   const failedCases = [];
   const passedCountEl = document.getElementById("passedCountBadge");
@@ -1046,6 +1094,17 @@ async function executeGradingRun() {
   const statsSummaryEl = document.getElementById("liveCaseStatsSummary");
   const overallPillEl = document.getElementById("liveOverallPill");
 
+  // Live Case Breakdown UI elements (Automated nusactl Grade)
+  let toolPassedCases = [];
+  let toolFailedCases = [];
+  const toolStatusBadge = document.getElementById("toolGradeStatusBadge");
+  const toolScoreBadge = document.getElementById("toolScoreBadge");
+  const toolPassedCountEl = document.getElementById("toolPassedCountBadge");
+  const toolFailedCountEl = document.getElementById("toolFailedCountBadge");
+  const toolPassedPillsEl = document.getElementById("toolPassedCasesPills");
+  const toolFailedPillsEl = document.getElementById("toolFailedCasesPills");
+  const toolOutputEl = document.getElementById("toolGradeOutputContainer");
+
   if (passedCountEl) passedCountEl.textContent = "0";
   if (failedCountEl) failedCountEl.textContent = "0";
   if (passedPillsEl) passedPillsEl.innerHTML = '<span style="font-size: 11px; color: var(--text-muted);">None yet</span>';
@@ -1055,7 +1114,18 @@ async function executeGradingRun() {
     statsSummaryEl.className = "badge badge-skip";
     statsSummaryEl.textContent = "0 / 0 Cases";
   }
-  if (overallPillEl) overallPillEl.textContent = "Connecting...";
+  if (overallPillEl) overallPillEl.textContent = "Awaiting manual execution...";
+
+  if (toolStatusBadge) {
+    toolStatusBadge.className = "badge badge-skip";
+    toolStatusBadge.textContent = "Awaiting nusactl...";
+  }
+  if (toolScoreBadge) toolScoreBadge.textContent = "Score: - / 100";
+  if (toolPassedCountEl) toolPassedCountEl.textContent = "0";
+  if (toolFailedCountEl) toolFailedCountEl.textContent = "0";
+  if (toolPassedPillsEl) toolPassedPillsEl.innerHTML = '<span style="font-size: 11px; color: var(--text-muted);">None yet</span>';
+  if (toolFailedPillsEl) toolFailedPillsEl.innerHTML = '<span style="font-size: 11px; color: var(--text-muted);">None yet</span>';
+  if (toolOutputEl) toolOutputEl.innerHTML = '<div style="color: var(--text-muted); font-size: 11px;">nusactl output preview will appear here upon Stage 4 completion...</div>';
 
   liveBadge.className = "badge badge-ai";
   liveBadge.textContent = "Connecting...";
@@ -1182,6 +1252,13 @@ async function executeGradingRun() {
       const p = JSON.parse(e.data);
       logBox.innerHTML += `<span style="color: #38bdf8; font-weight: 700;">🚀 [TOOL GRADER] Executing platform tool: <code>${escapeHtml(p.cmd)}</code>...</span>\n`;
       logBox.scrollTop = logBox.scrollHeight;
+      if (toolStatusBadge) {
+        toolStatusBadge.className = "badge badge-ai";
+        toolStatusBadge.textContent = "Grading with nusactl...";
+      }
+      if (toolOutputEl) {
+        toolOutputEl.innerHTML = `<span style="color: #38bdf8;">Executing <code>${escapeHtml(p.cmd)}</code> on target VM...</span>`;
+      }
     });
 
     sse.addEventListener("tool_grade_complete", (e) => {
@@ -1196,6 +1273,52 @@ async function executeGradingRun() {
         logBox.innerHTML += `  <pre style="margin: 4px 0 8px 12px; color: #f87171; font-size: 11px; white-space: pre-wrap; font-family: var(--font-mono);">${escapeHtml(p.stderr)}</pre>`;
       }
       logBox.scrollTop = logBox.scrollHeight;
+
+      // Update nusactl section in UI
+      if (toolStatusBadge) {
+        toolStatusBadge.className = isPass ? "badge badge-pass" : "badge badge-fail";
+        toolStatusBadge.textContent = p.verdict;
+      }
+      const scoreVal = p.score !== undefined ? p.score : (isPass ? 100 : 0);
+      if (toolScoreBadge) {
+        toolScoreBadge.innerHTML = `Score: <strong style="color: ${scoreVal === 100 ? '#4ade80' : '#f87171'}; font-size: 13px;">${scoreVal} / 100</strong>`;
+      }
+
+      toolPassedCases = p.passed_cases || [];
+      toolFailedCases = p.failed_cases || [];
+
+      if (toolPassedCountEl) toolPassedCountEl.textContent = toolPassedCases.length;
+      if (toolFailedCountEl) toolFailedCountEl.textContent = toolFailedCases.length;
+
+      if (toolPassedPillsEl) {
+        if (toolPassedCases.length > 0) {
+          toolPassedPillsEl.innerHTML = toolPassedCases.map(c => `<span class="badge badge-pass" style="font-size: 11px; font-weight: 700;">Case ${c}</span>`).join(' ');
+        } else if (isPass) {
+          toolPassedPillsEl.innerHTML = `<span class="badge badge-pass" style="font-size: 11px; font-weight: 700;">All Platform Checks Passed</span>`;
+        } else {
+          toolPassedPillsEl.innerHTML = `<span style="font-size: 11px; color: var(--text-muted);">None</span>`;
+        }
+      }
+
+      if (toolFailedPillsEl) {
+        if (toolFailedCases.length > 0) {
+          toolFailedPillsEl.innerHTML = toolFailedCases.map(c => `<span class="badge badge-fail" style="font-size: 11px; font-weight: 700;">Case ${c}</span>`).join(' ');
+        } else if (!isPass && toolPassedCases.length === 0) {
+          toolFailedPillsEl.innerHTML = `<span class="badge badge-fail" style="font-size: 11px; font-weight: 700;">Platform Grade Failed</span>`;
+        } else {
+          toolFailedPillsEl.innerHTML = `<span style="font-size: 11px; color: var(--text-muted);">None</span>`;
+        }
+      }
+
+      if (toolOutputEl) {
+        const cleanOut = (p.stdout || "").replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').trim();
+        toolOutputEl.innerHTML = cleanOut 
+          ? `<pre style="margin: 0; white-space: pre-wrap; font-family: var(--font-mono); font-size: 11px; color: #cbd5e1;">${escapeHtml(cleanOut)}</pre>`
+          : `<span style="color: var(--text-muted);">(No stdout from nusactl)</span>`;
+        if (p.stderr) {
+          toolOutputEl.innerHTML += `<div style="color: #f87171; margin-top: 4px; font-size: 11px;">${escapeHtml(p.stderr)}</div>`;
+        }
+      }
     });
 
     sse.addEventListener("case_start", (e) => {
@@ -1284,11 +1407,31 @@ async function executeGradingRun() {
       const pList = (p.passed_cases && p.passed_cases.length > 0) ? p.passed_cases.map(c => `Case ${c}`).join(", ") : (passedCases.length > 0 ? passedCases.map(c => `Case ${c}`).join(", ") : "None");
       const fList = (p.failed_cases && p.failed_cases.length > 0) ? p.failed_cases.map(c => `Case ${c}`).join(", ") : (failedCases.length > 0 ? failedCases.map(c => `Case ${c}`).join(", ") : "None");
 
-      logBox.innerHTML += `\n========================================\nOVERALL VERDICT: ${p.lab_verdict} (Score: ${p.score_passed}/${p.score_total})\nValidation: ${p.validation}\n----------------------------------------\n📋 CASE BREAKDOWN:\n  ✅ Cases That Passed: ${pList}\n  ❌ Cases That Failed: ${fList}\n========================================\n`;
+      const toolData = p.tool_grade || {};
+      const toolVerdict = toolData.verdict || (toolStatusBadge ? toolStatusBadge.textContent : "N/A");
+      const toolScore = toolData.score !== undefined ? `${toolData.score}/100` : (toolScoreBadge ? toolScoreBadge.textContent.replace('Score: ', '').trim() : "N/A");
+      const toolPList = (toolData.passed_cases && toolData.passed_cases.length > 0) ? toolData.passed_cases.map(c => `Case ${c}`).join(", ") : (toolPassedCases.length > 0 ? toolPassedCases.map(c => `Case ${c}`).join(", ") : (toolVerdict === 'PASS' ? "All platform checks passed" : "None"));
+      const toolFList = (toolData.failed_cases && toolData.failed_cases.length > 0) ? toolData.failed_cases.map(c => `Case ${c}`).join(", ") : (toolFailedCases.length > 0 ? toolFailedCases.map(c => `Case ${c}`).join(", ") : "None");
+
+      logBox.innerHTML += `\n========================================\n` +
+        `🏁 RUN COMPLETE: TEST CASES RESULTS DIVIDED\n` +
+        `----------------------------------------\n` +
+        `🛠️ 1. MANUAL BASH GRADE:\n` +
+        `   • Verdict: ${p.lab_verdict} (Score: ${p.score_passed}/${p.score_total})\n` +
+        `   • ✅ Passed Cases: ${pList}\n` +
+        `   • ❌ Failed Cases: ${fList}\n` +
+        `----------------------------------------\n` +
+        `🚀 2. AUTOMATED PLATFORM GRADE (nusactl):\n` +
+        `   • Verdict: ${toolVerdict} (Score: ${toolScore})\n` +
+        `   • ✅ Passed Cases: ${toolPList}\n` +
+        `   • ❌ Failed Cases: ${toolFList}\n` +
+        `----------------------------------------\n` +
+        `Overall Validation: ${p.validation}\n` +
+        `========================================\n`;
       logBox.scrollTop = logBox.scrollHeight;
 
       if (overallPillEl) {
-        overallPillEl.innerHTML = `<span class="badge ${p.lab_verdict === 'PASS' ? 'badge-pass' : 'badge-fail'}" style="font-size: 12px; font-weight: 700;">Final: ${p.lab_verdict} (${p.score_passed}/${p.score_total})</span>`;
+        overallPillEl.innerHTML = `<span class="badge ${p.lab_verdict === 'PASS' ? 'badge-pass' : 'badge-fail'}" style="font-size: 12px; font-weight: 700;">Manual: ${p.lab_verdict} (${p.score_passed}/${p.score_total})</span>`;
       }
       sse.close();
     });

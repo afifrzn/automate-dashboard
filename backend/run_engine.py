@@ -505,20 +505,22 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
         if should_follow or state == "solved":
             tool_exit = 0
             tool_out = (
-                f"[-] Evaluating nusactl grade {target_grade_slug}...\n"
-                f"[+] Case 1: PASSED\n"
-                f"[+] Case 2: PASSED\n"
-                f"[+] Case 3: PASSED\n"
-                f"[*] Result: 100% - All checks passed successfully."
+                f"[-] Grading lab -> {target_grade_slug}\n"
+                f"    => case 1 - Verify system configuration [✓]\n"
+                f"    => case 2 - Verify files and permissions [✓]\n"
+                f"    => case 3 - Verify service status [✓]\n"
+                f"[✓] Yeay! you're completed the task\n"
+                f"[-] Score -> 100"
             )
             tool_err = ""
             tool_verdict = "PASS"
         else:
             tool_exit = 1
             tool_out = (
-                f"[-] Evaluating nusactl grade {target_grade_slug}...\n"
-                f"[-] Case 1: FAILED - State does not match expected baseline\n"
-                f"[*] Result: 0% - Lab incomplete."
+                f"[-] Grading lab -> {target_grade_slug}\n"
+                f"    => case 1 - Verify system configuration [x]\n"
+                f"[x] Oh no! You didn't complete the task\n"
+                f"[-] Score -> 0"
             )
             tool_err = ""
             tool_verdict = "FAIL"
@@ -553,13 +555,43 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
         else:
             tool_verdict = "FAIL"
 
+    # Parse individual test cases and numeric score from nusactl grade output
+    clean_raw_tool_out = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', tool_out or "")
+    tool_cases = []
+    tool_passed_cases = []
+    tool_failed_cases = []
+    for m in re.finditer(r'=>\s*(case\s*(\d+)[^\[\n]*?)\[\s*([^\]]+?)\s*\]', clean_raw_tool_out, re.IGNORECASE):
+        full_desc = m.group(1).strip()
+        case_num = int(m.group(2))
+        mark = m.group(3).strip()
+        is_pass = any(s in mark for s in ["✓", "v", "V", "OK", "ok", "pass", "PASS"]) and not any(f in mark for f in ["x", "X", "FAIL", "!"])
+        tool_cases.append({
+            "case_index": case_num,
+            "name": full_desc,
+            "verdict": "PASS" if is_pass else "FAIL",
+            "mark": mark
+        })
+        if is_pass:
+            tool_passed_cases.append(case_num)
+        else:
+            tool_failed_cases.append(case_num)
+
+    score_match = re.search(r'Score\s*->\s*(\d+)', clean_raw_tool_out, re.IGNORECASE)
+    if not score_match:
+        score_match = re.search(r'Score\s*[:=]\s*(\d+)', clean_raw_tool_out, re.IGNORECASE)
+    tool_score = int(score_match.group(1)) if score_match else (100 if tool_verdict == "PASS" else 0)
+
     emit_event("tool_grade_complete", {
         "slug": target_grade_slug,
         "cmd": tool_grade_cmd,
         "exit_code": tool_exit,
         "stdout": (tool_out or "").strip(),
         "stderr": (tool_err or "").strip(),
-        "verdict": tool_verdict
+        "verdict": tool_verdict,
+        "score": tool_score,
+        "cases": tool_cases,
+        "passed_cases": tool_passed_cases,
+        "failed_cases": tool_failed_cases
     })
 
     if workflow == "4step":
@@ -575,7 +607,15 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
                 "passed_cases": passed_case_indices,
                 "failed_cases": failed_case_indices
             },
-            "stage_4_tool": {"slug": target_grade_slug, "verdict": tool_verdict, "exit_code": tool_exit},
+            "stage_4_tool": {
+                "slug": target_grade_slug,
+                "verdict": tool_verdict,
+                "exit_code": tool_exit,
+                "score": tool_score,
+                "cases": tool_cases,
+                "passed_cases": tool_passed_cases,
+                "failed_cases": tool_failed_cases
+            },
             "final_verdict": final_pipeline_verdict,
             "passed_cases": passed_case_indices,
             "failed_cases": failed_case_indices
@@ -642,7 +682,14 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
         "validation": val_reason,
         "passed_cases": passed_case_indices,
         "failed_cases": failed_case_indices,
-        "case_results": case_results
+        "case_results": case_results,
+        "tool_grade": {
+            "verdict": tool_verdict,
+            "score": tool_score,
+            "passed_cases": tool_passed_cases,
+            "failed_cases": tool_failed_cases,
+            "cases": tool_cases
+        } if (mode in ("tool", "both") or workflow == "4step") else None
     })
 
     return {
