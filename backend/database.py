@@ -64,6 +64,7 @@ def init_db():
         finish_json TEXT DEFAULT '[]',
         slug TEXT,
         modifiable_ok INTEGER DEFAULT 0,
+        lab_md TEXT,
         FOREIGN KEY(course_id) REFERENCES courses(id)
     )""")
 
@@ -474,6 +475,12 @@ def init_db():
             ("allowed_address_words", "false")
         ]
         c.executemany("INSERT INTO settings (key, value) VALUES (?, ?)", default_settings)
+
+    # Migrations for existing schemas
+    try:
+        c.execute("ALTER TABLE labs ADD COLUMN lab_md TEXT")
+    except sqlite3.OperationalError:
+        pass
 
     conn.commit()
     conn.close()

@@ -16,6 +16,7 @@ let appState = {
   userId: "operator",
   labs: [],
   targets: [],
+  currentLabMd: "",
   activeRunEventSource: null
 };
 
@@ -501,14 +502,25 @@ function prepareRunForLab(labId, caseIndex = null) {
   switchView("runs");
   setTimeout(() => {
     const select = document.getElementById("runLabSelect");
-    if (select) select.value = labId;
+    if (select) {
+      select.value = labId;
+      loadLabMdForSelectedLab();
+    }
   }, 100);
+}
+
+function onRunStateChange() {
+  const state = document.getElementById("runStateSelect").value;
+  const cb = document.getElementById("runFollowLabMdCheckbox");
+  if (cb) {
+    cb.checked = (state === "solved" || state === "final");
+  }
 }
 
 async function renderRuns() {
   const container = document.getElementById("view-runs");
   container.innerHTML = `
-    <div style="display: grid; grid-template-columns: 360px 1fr; gap: 20px;">
+    <div style="display: grid; grid-template-columns: 380px 1fr; gap: 20px;">
       <!-- Left: Run Configuration Console -->
       <div class="card">
         <h3 style="font-size: 14px; margin-bottom: 14px; color: var(--text-primary); text-transform: none; font-weight: 700;">
@@ -516,7 +528,7 @@ async function renderRuns() {
         </h3>
 
         <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary);">Target Lab:</label>
-        <select id="runLabSelect" style="width: 100%; margin-bottom: 12px;">
+        <select id="runLabSelect" style="width: 100%; margin-bottom: 12px;" onchange="loadLabMdForSelectedLab()">
           ${appState.labs.map(l => `<option value="${l.id}">${l.description} (${l.chapter}.${l.part})</option>`).join('')}
         </select>
 
@@ -526,18 +538,29 @@ async function renderRuns() {
         </select>
 
         <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary);">Validation State (Sec 10.8):</label>
-        <select id="runStateSelect" style="width: 100%; margin-bottom: 12px;">
+        <select id="runStateSelect" style="width: 100%; margin-bottom: 12px;" onchange="onRunStateChange()">
           <option value="unsolved">Unsolved (All required cases must FAIL)</option>
-          <option value="solved">Solved (Reference solution - all cases must PASS)</option>
+          <option value="solved" selected>Solved (Reference solution - all cases must PASS)</option>
           <option value="near-miss">Near-Miss (Targeted defect must FAIL)</option>
           <option value="final">Final Run</option>
         </select>
+
+        <!-- AI Solver: Follow Lab MD instructions checkbox -->
+        <div style="margin-bottom: 14px; padding: 10px 12px; background: rgba(139, 92, 246, 0.08); border: 1px solid #8b5cf6; border-radius: 6px;">
+          <label style="display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 12px; color: #c4b5fd; cursor: pointer;">
+            <input type="checkbox" id="runFollowLabMdCheckbox" checked>
+            🤖 AI Solver: Read Lab MD & Follow Instructions
+          </label>
+          <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">
+            The AI Agent reads the lab's Markdown instructions, executes all required bash steps on the lab VM, and then tests the grader.
+          </div>
+        </div>
 
         <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary);">Execution Mode:</label>
         <select id="runModeSelect" style="width: 100%; margin-bottom: 12px;">
           <option value="manual">Manual SSH (Source of Truth)</option>
           <option value="tool">Tool Mode (nusactl grade)</option>
-          <option value="both">Both & Cross-Check (Recommended)</option>
+          <option value="both" selected>Both & Cross-Check (Recommended)</option>
         </select>
 
         <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary);">Variables (e.g. $NUSA_USERNAME):</label>
@@ -551,6 +574,26 @@ async function renderRuns() {
         <button class="btn btn-primary" style="width: 100%; justify-content: center;" onclick="executeGradingRun()">
           Start Grading Execution
         </button>
+
+        <!-- Lab MD Preview & Custom Editor Card -->
+        <div class="card" style="margin-top: 16px; border: 1px solid var(--border-color); background: var(--bg-secondary);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <strong style="font-size: 12px; color: var(--text-primary);">📖 Lab MD Instructions</strong>
+            <div style="display: flex; gap: 4px;">
+              <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="previewParsedLabSteps()" title="Preview executable commands extracted by AI">🤖 Preview Steps</button>
+              <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="toggleEditLabMd()" title="Edit or paste custom Markdown instructions">✏️ Edit MD</button>
+            </div>
+          </div>
+          <div id="labMdInfo" style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">Loading Lab MD...</div>
+          <div id="labMdPreview" style="background: var(--bg-code); border: 1px solid var(--border-color); border-radius: 4px; padding: 8px; max-height: 130px; overflow-y: auto; font-family: var(--font-mono); font-size: 11px; white-space: pre-wrap; color: #cbd5e1;"></div>
+          <div id="labMdEditorContainer" style="display: none; margin-top: 8px;">
+            <textarea id="labMdEditorInput" style="width: 100%; height: 160px; font-family: var(--font-mono); font-size: 11px; background: var(--bg-code); color: #f8fafc; border: 1px solid var(--border-color); border-radius: 4px; padding: 8px; box-sizing: border-box;" placeholder="Paste or edit Lab Markdown here..."></textarea>
+            <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px;">
+              <button class="btn btn-secondary" style="font-size: 11px; padding: 3px 8px;" onclick="toggleEditLabMd()">Cancel</button>
+              <button class="btn btn-primary" style="font-size: 11px; padding: 3px 8px;" onclick="saveCustomLabMd()">💾 Save Lab MD</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Right: Live Progress & Output Console -->
@@ -562,12 +605,101 @@ async function renderRuns() {
           <span id="runLiveBadge" class="badge badge-skip">Idle</span>
         </div>
 
-        <div id="runProgressBox" style="background-color: var(--bg-code); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px; height: 500px; overflow-y: auto; font-family: var(--font-mono); font-size: 12px; color: #f8fafc;">
+        <div id="runProgressBox" style="background-color: var(--bg-code); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px; height: 580px; overflow-y: auto; font-family: var(--font-mono); font-size: 12px; color: #f8fafc; line-height: 1.5;">
           <div style="color: var(--text-muted);">Select options on the left and click "Start Grading Execution" to watch live results stream in real-time...</div>
         </div>
       </div>
     </div>
   `;
+
+  // Auto load Lab MD for the initially selected lab
+  loadLabMdForSelectedLab();
+}
+
+async function loadLabMdForSelectedLab() {
+  const select = document.getElementById("runLabSelect");
+  if (!select || !select.value) return;
+  const labId = select.value;
+  const infoEl = document.getElementById("labMdInfo");
+  const previewEl = document.getElementById("labMdPreview");
+  const editorInput = document.getElementById("labMdEditorInput");
+
+  if (infoEl) infoEl.textContent = "Loading Lab MD...";
+
+  try {
+    const res = await fetch(`${API_BASE}/labs/${labId}/md`);
+    const data = await res.json();
+    appState.currentLabMd = data.lab_md || "";
+    if (infoEl) infoEl.innerHTML = `<span style="color: #4ade80;">Source: ${escapeHtml(data.source)}</span> (${appState.currentLabMd.length} characters)`;
+    if (previewEl) previewEl.textContent = appState.currentLabMd || "(No Lab Markdown available for this lab yet. Click 'Edit MD' to paste one.)";
+    if (editorInput) editorInput.value = appState.currentLabMd;
+  } catch (e) {
+    if (infoEl) infoEl.textContent = "Failed to load Lab MD";
+  }
+}
+
+function toggleEditLabMd() {
+  const container = document.getElementById("labMdEditorContainer");
+  const preview = document.getElementById("labMdPreview");
+  if (!container) return;
+  const isOpen = container.style.display !== "none";
+  container.style.display = isOpen ? "none" : "block";
+  if (preview) preview.style.display = isOpen ? "block" : "none";
+}
+
+async function saveCustomLabMd() {
+  const select = document.getElementById("runLabSelect");
+  if (!select) return;
+  const labId = select.value;
+  const val = document.getElementById("labMdEditorInput").value;
+
+  try {
+    const res = await fetch(`${API_BASE}/labs/${labId}/md`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "X-User-Role": appState.userRole,
+        "X-User-Id": appState.userId
+      },
+      body: JSON.stringify({ lab_md: val })
+    });
+    const data = await res.json();
+    showToast(`Lab MD saved (${data.chars} chars)`);
+    toggleEditLabMd();
+    loadLabMdForSelectedLab();
+  } catch (e) {
+    alert(`Failed to save Lab MD: ${e.message}`);
+  }
+}
+
+async function previewParsedLabSteps() {
+  const select = document.getElementById("runLabSelect");
+  if (!select) return;
+  const labId = select.value;
+  const logBox = document.getElementById("runProgressBox");
+
+  logBox.innerHTML = `[${new Date().toISOString()}] Parsing instructions from Lab MD for '${select.options[select.selectedIndex].text}'...\n`;
+
+  try {
+    const res = await fetch(`${API_BASE}/labs/${labId}/parse-md`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lab_md: appState.currentLabMd })
+    });
+    const data = await res.json();
+    logBox.innerHTML += `\n========================================\n📖 AI INSTRUCTION PARSER PREVIEW\nTotal Steps Extracted: ${data.total_steps}\n========================================\n`;
+    if (data.steps.length === 0) {
+      logBox.innerHTML += `No executable code blocks ($ command) found in this Lab MD.\n`;
+    } else {
+      data.steps.forEach((s) => {
+        logBox.innerHTML += `<span style="color: #60a5fa; font-weight: 700;">Step ${s.step}:</span> <code style="color: #f1f5f9;">${escapeHtml(s.raw_cmd)}</code>\n   <span style="color: #64748b; font-size: 11px;">(Working dir: ${s.working_dir} &rarr; ${escapeHtml(s.cmd)})</span>\n`;
+      });
+    }
+    logBox.innerHTML += `\nThese steps will be executed on the target VM when 'AI Solver' is enabled.\n`;
+    logBox.scrollTop = logBox.scrollHeight;
+  } catch (e) {
+    logBox.innerHTML += `Error: ${e.message}\n`;
+  }
 }
 
 async function executeGradingRun() {
@@ -576,6 +708,7 @@ async function executeGradingRun() {
   const state = document.getElementById("runStateSelect").value;
   const mode = document.getElementById("runModeSelect").value;
   const rawVars = document.getElementById("runVarsInput").value;
+  const followLabMd = document.getElementById("runFollowLabMdCheckbox") ? document.getElementById("runFollowLabMdCheckbox").checked : false;
 
   const varsObj = {};
   if (rawVars.includes("=")) {
@@ -603,7 +736,9 @@ async function executeGradingRun() {
         target_id: targetId,
         state: state,
         mode: mode,
-        vars: varsObj
+        vars: varsObj,
+        follow_lab_md: followLabMd,
+        custom_lab_md: appState.currentLabMd
       })
     });
     const data = await res.json();
@@ -620,6 +755,51 @@ async function executeGradingRun() {
 
     const sse = new EventSource(`${API_BASE}/runs/${runId}/events`);
     appState.activeRunEventSource = sse;
+
+    // AI Lab MD Instruction SSE listeners
+    sse.addEventListener("ai_md_reading", (e) => {
+      const p = JSON.parse(e.data);
+      logBox.innerHTML += `<span style="color: #c084fc; font-weight: 700;">📖 [AI AGENT] Reading Lab MD: "${escapeHtml(p.description)}" (${p.md_chars} chars)...</span>\n`;
+      logBox.scrollTop = logBox.scrollHeight;
+    });
+
+    sse.addEventListener("ai_instructions_parsed", (e) => {
+      const p = JSON.parse(e.data);
+      logBox.innerHTML += `<span style="color: #38bdf8; font-weight: 700;">📋 [AI AGENT] Extracted ${p.total_steps} instruction steps from Lab MD:</span>\n`;
+      (p.steps || []).slice(0, 10).forEach((s, idx) => {
+        logBox.innerHTML += `  <span style="color: #94a3b8;">${idx+1}.</span> <code style="color: #cbd5e1;">${escapeHtml(s)}</code>\n`;
+      });
+      if ((p.steps || []).length > 10) {
+        logBox.innerHTML += `  <span style="color: #64748b;">... and ${p.steps.length - 10} more steps</span>\n`;
+      }
+      logBox.innerHTML += `<span style="color: #fbbf24; font-weight: 600;">⚡ [AI AGENT] Following instructions on target lab VM...</span>\n`;
+      logBox.scrollTop = logBox.scrollHeight;
+    });
+
+    sse.addEventListener("ai_step_start", (e) => {
+      const p = JSON.parse(e.data);
+      logBox.innerHTML += `  <span style="color: #60a5fa;">[Step ${p.step}/${p.total}]</span> <code style="color: #f1f5f9;">${escapeHtml(p.cmd)}</code>\n`;
+      logBox.scrollTop = logBox.scrollHeight;
+    });
+
+    sse.addEventListener("ai_step_done", (e) => {
+      const p = JSON.parse(e.data);
+      const ok = p.exit_code === 0;
+      const statusColor = ok ? '#4ade80' : '#f87171';
+      logBox.innerHTML += `    <span style="color: ${statusColor}; font-size: 11px;">&rarr; Exit: ${p.exit_code} ${ok ? 'OK' : 'FAIL'}</span>`;
+      if (p.stdout && p.stdout.trim()) {
+        const previewOut = p.stdout.trim().split('\n')[0];
+        logBox.innerHTML += ` <span style="color: #94a3b8; font-size: 11px;">| ${escapeHtml(previewOut)}</span>`;
+      }
+      logBox.innerHTML += `\n`;
+      logBox.scrollTop = logBox.scrollHeight;
+    });
+
+    sse.addEventListener("ai_instructions_complete", (e) => {
+      const p = JSON.parse(e.data);
+      logBox.innerHTML += `<span style="color: #4ade80; font-weight: 700;">✅ [AI AGENT] ${escapeHtml(p.message)}</span>\n<span style="color: #e2e8f0; font-weight: 600;">🔍 [GRADER] Now evaluating grading test cases:</span>\n\n`;
+      logBox.scrollTop = logBox.scrollHeight;
+    });
 
     sse.addEventListener("case_start", (e) => {
       const p = JSON.parse(e.data);

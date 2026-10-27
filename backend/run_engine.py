@@ -205,9 +205,11 @@ def compute_verdict(exit_code, stdout, stderr, expect):
 
     return "FAIL"
 
-def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None, scenario=None, user_id="operator", event_callback=None):
+def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None, scenario=None, user_id="operator", event_callback=None, follow_lab_md=False):
     """
     Executes a complete grading run for a lab according to Section 10.
+    If follow_lab_md is True (or state is "solved"), the AI Agent reads the Lab MD,
+    executes the instructions on the target environment, and then runs the grader checks.
     """
     conn = get_connection()
     c = conn.cursor()
@@ -237,6 +239,51 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
             VALUES (?, ?, ?, ?, ?, 'denied', 'system_safety', ?)
         """, (gate_id, run_id, "start_finish", json.dumps(start_cmds + finish_cmds), "Target is not marked modifiable. State-changing steps denied.", now))
         conn.commit()
+
+    is_mock_target = target.get("host") in ["localhost", "mock", "127.0.0.1", "test-vm"] or not target.get("host")
+
+    # ==================== AI Lab MD Instruction Execution ====================
+    from .ai_agent import resolve_lab_markdown, extract_instructions_from_lab_md, execute_lab_instructions_agent
+
+    lab_md = lab.get("lab_md")
+    if not lab_md:
+        lab_md, _ = resolve_lab_markdown(lab_id)
+
+    should_follow = follow_lab_md or (state == "solved")
+
+    if should_follow and lab_md:
+        emit_event("ai_md_reading", {
+            "lab_id": lab_id,
+            "description": lab.get("description", "Lab"),
+            "md_chars": len(lab_md)
+        })
+
+        steps = extract_instructions_from_lab_md(lab_md, target=target, env_vars=user_vars, lab=lab)
+        if steps:
+            emit_event("ai_instructions_parsed", {
+                "total_steps": len(steps),
+                "steps": [s["raw_cmd"] for s in steps]
+            })
+
+            success, results = execute_lab_instructions_agent(
+                target=target,
+                steps=steps,
+                env_vars=user_vars,
+                is_mock=is_mock_target,
+                event_callback=emit_event
+            )
+
+            emit_event("ai_instructions_complete", {
+                "message": f"Successfully executed {len(steps)} instruction steps from Lab MD on target VM. Target is now in SOLVED state."
+            })
+        else:
+            emit_event("ai_instructions_complete", {
+                "message": "No executable instruction code blocks found in Lab MD. Proceeding directly to grader checks."
+            })
+    elif should_follow and not lab_md:
+        emit_event("ai_instructions_complete", {
+            "message": "Notice: No Lab MD found for this lab. Proceeding with standard execution."
+        })
 
     case_results = []
     debug_logs = []

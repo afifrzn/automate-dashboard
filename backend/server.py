@@ -25,7 +25,7 @@ from .reports import (
     generate_junit_xml
 )
 from .seed_data import load_seed_data
-from .ai_agent import run_grading_remediation_agent, run_course_update_agent
+from .ai_agent import run_grading_remediation_agent, run_course_update_agent, resolve_lab_markdown, extract_instructions_from_lab_md
 
 # Global event queues for SSE per run_id
 RUN_EVENT_QUEUES = {}
@@ -258,6 +258,14 @@ class AppRequestHandler(BaseHTTPRequestHandler):
             self._send_json(labs)
             return
 
+        # Lab Markdown Instructions
+        if path.startswith("/api/v1/labs/") and path.endswith("/md"):
+            lab_id = path.split("/")[4]
+            md, source = resolve_lab_markdown(lab_id)
+            conn.close()
+            self._send_json({"lab_id": lab_id, "lab_md": md or "", "source": source})
+            return
+
         # Single Lab Detail
         if path.startswith("/api/v1/labs/"):
             lab_id = path.split("/")[4]
@@ -271,6 +279,9 @@ class AppRequestHandler(BaseHTTPRequestHandler):
             lab["vars"] = json.loads(lab["vars_json"] or "{}")
             lab["start"] = json.loads(lab["start_json"] or "[]")
             lab["finish"] = json.loads(lab["finish_json"] or "[]")
+            if not lab.get("lab_md"):
+                resolved_md, _ = resolve_lab_markdown(lab["id"])
+                lab["lab_md"] = resolved_md or ""
 
             c.execute("SELECT * FROM grade_cases WHERE lab_id = ? ORDER BY case_index", (lab["id"],))
             cases = [dict(case) for case in c.fetchall()]
@@ -648,6 +659,19 @@ class AppRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"total_issues": len(all_issues), "issues": all_issues})
             return
 
+        # Parse Lab MD for AI step preview
+        if path.startswith("/api/v1/labs/") and path.endswith("/parse-md"):
+            lab_id = path.split("/")[4]
+            custom_md = body.get("lab_md")
+            if custom_md:
+                lab_md = custom_md
+            else:
+                lab_md, _ = resolve_lab_markdown(lab_id)
+            steps = extract_instructions_from_lab_md(lab_md)
+            conn.close()
+            self._send_json({"lab_id": lab_id, "total_steps": len(steps), "steps": steps})
+            return
+
         # Start a grading run
         if path == "/api/v1/runs":
             lab_id = body.get("lab_id")
@@ -656,6 +680,8 @@ class AppRequestHandler(BaseHTTPRequestHandler):
             mode = body.get("mode", "manual")
             scenario = body.get("scenario")
             user_vars = body.get("vars", {})
+            follow_lab_md = body.get("follow_lab_md", (state == "solved"))
+            custom_lab_md = body.get("custom_lab_md")
 
             c.execute("SELECT * FROM labs WHERE id = ?", (lab_id,))
             lab = c.fetchone()
@@ -675,6 +701,8 @@ class AppRequestHandler(BaseHTTPRequestHandler):
             lab_dict["vars"] = json.loads(lab["vars_json"] or "{}")
             lab_dict["start"] = json.loads(lab["start_json"] or "[]")
             lab_dict["finish"] = json.loads(lab["finish_json"] or "[]")
+            if custom_lab_md:
+                lab_dict["lab_md"] = custom_lab_md
 
             c.execute("SELECT * FROM grade_cases WHERE lab_id = ? ORDER BY case_index", (lab["id"],))
             lab_dict["grade"] = [dict(case) for case in c.fetchall()]
@@ -707,7 +735,8 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                     user_vars=user_vars,
                     scenario=scenario,
                     user_id=user_id,
-                    event_callback=dispatch_event
+                    event_callback=dispatch_event,
+                    follow_lab_md=follow_lab_md
                 )
 
             t = threading.Thread(target=worker, daemon=True)
@@ -911,6 +940,17 @@ class AppRequestHandler(BaseHTTPRequestHandler):
     def handle_api_put(self, path, query, body, user_id, user_role):
         conn = get_connection()
         c = conn.cursor()
+
+        # Update Lab Markdown Instructions
+        if path.startswith("/api/v1/labs/") and path.endswith("/md"):
+            lab_id = path.split("/")[4]
+            new_md = body.get("lab_md", "")
+            c.execute("UPDATE labs SET lab_md = ? WHERE id = ? OR export_id = ?", (new_md, lab_id, lab_id))
+            conn.commit()
+            conn.close()
+            log_activity(user_id, "update_lab_md", "lab", lab_id, None, {"chars": len(new_md)})
+            self._send_json({"status": "updated", "lab_id": lab_id, "chars": len(new_md)})
+            return
 
         # Update Manifest Row
         if path.startswith("/api/v1/manifest/"):

@@ -479,3 +479,193 @@ yes
         "submodules_added": ["6.1 Pod Security Standards", "6.2 Least Privilege RBAC"],
         "new_lab_added": "Lab 6.1 - Pod Security Standards & RBAC Hardening"
     }
+
+# ==================== 3. AI Lab Markdown Solver & Execution Agent ====================
+
+def resolve_lab_markdown(lab_id):
+    """
+    Retrieves the Lab Markdown for a given lab.
+    1. Checks if labs.lab_md is already populated.
+    2. If not, auto-links to content_versions matching the lab:
+       - Match submodule title containing Lab <chapter>.<part>
+       - Or match submodule title containing lab description
+       - Or match chapter/part
+    3. If found, stores in labs.lab_md and returns (markdown, source).
+    """
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT id, chapter, part, description, course_id, lab_md FROM labs WHERE id = ? OR export_id = ?", (lab_id, lab_id))
+    lab = c.fetchone()
+    if not lab:
+        conn.close()
+        return None, "Lab not found"
+
+    if lab["lab_md"]:
+        conn.close()
+        return lab["lab_md"], "Explicit lab_md"
+
+    # Try finding in content_versions / submodules
+    # 1. By Lab X.Y in submodule title
+    c_num = int(lab['chapter']) if str(lab['chapter']).isdigit() else lab['chapter']
+    pattern1 = f"%{c_num}.{lab['part']}%"
+    sub = c.execute("""
+        SELECT s.id, s.title, cv.body_markdown 
+        FROM submodules s 
+        JOIN content_versions cv ON cv.content_id = s.id 
+        WHERE s.title LIKE ?
+    """, (pattern1,)).fetchone()
+
+    # 2. By description match
+    if not sub:
+        words = [w for w in re.findall(r'[a-zA-Z0-9]+', lab['description'].lower()) if len(w) > 3]
+        if words:
+            subs = c.execute("""
+                SELECT s.id, s.title, cv.body_markdown 
+                FROM submodules s 
+                JOIN content_versions cv ON cv.content_id = s.id
+            """).fetchall()
+            best_count = 0
+            for s in subs:
+                s_lower = s['title'].lower()
+                cnt = sum(1 for w in words if w in s_lower)
+                if cnt >= 2 and cnt > best_count:
+                    best_count = cnt
+                    sub = s
+
+    if sub and sub["body_markdown"]:
+        c.execute("UPDATE labs SET lab_md = ? WHERE id = ?", (sub["body_markdown"], lab["id"]))
+        conn.commit()
+        conn.close()
+        return sub["body_markdown"], f"Auto-resolved from submodule '{sub['title']}'"
+
+    conn.close()
+    return None, "No Lab MD found"
+
+
+def extract_instructions_from_lab_md(lab_md, target=None, env_vars=None, lab=None):
+    """
+    Parses Lab Markdown and extracts sequential executable instruction steps.
+    Strips prompts ($ / #), substitutes user credentials and parameters,
+    and returns a list of step dicts with working-directory awareness.
+    """
+    if not lab_md:
+        return []
+
+    target = target or {}
+    env_vars = env_vars or {}
+    username = target.get("nusactl_username") or target.get("user") or env_vars.get("NUSA_USERNAME") or "operator"
+    email = f"{username}@aditraining.id"
+
+    # Regex to extract code blocks: ```console ... ``` or ```bash ... ``` or ```sh ... ```
+    blocks = re.findall(r'```(?:console|bash|sh|shell)?\s*\n(.*?)```', lab_md, re.DOTALL)
+    if not blocks:
+        blocks = re.findall(r'```\s*\n(.*?)```', lab_md, re.DOTALL)
+
+    extracted_steps = []
+    step_num = 1
+    current_dir = "~"
+
+    for block in blocks:
+        lines = block.strip().split('\n')
+        has_prompt = any(l.strip().startswith('$') or l.strip().startswith('#') for l in lines)
+
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+
+            if has_prompt and not (line.startswith('$') or line.startswith('#')):
+                continue
+
+            cmd = re.sub(r'^[\$#]\s*', '', line).strip()
+            if not cmd:
+                continue
+
+            if cmd.startswith("nusactl grade"):
+                continue
+
+            cmd = cmd.replace("[username akun git]", username)
+            cmd = cmd.replace("[email akun git]", email)
+            cmd = cmd.replace("<hash>", "$(git log --oneline 2>/dev/null | head -n 1 | cut -d' ' -f1)")
+            if "$NUSA_USERNAME" in cmd:
+                cmd = cmd.replace("$NUSA_USERNAME", username)
+            if "$NUSA_PASSWORD" in cmd and target.get("nusactl_password"):
+                cmd = cmd.replace("$NUSA_PASSWORD", target["nusactl_password"])
+
+            if cmd.startswith("mkdir ") and "-p" not in cmd:
+                cmd = cmd.replace("mkdir ", "mkdir -p ", 1)
+
+            if cmd.startswith("cd "):
+                target_dir = cmd[3:].strip()
+                if target_dir.startswith("~") or target_dir.startswith("/"):
+                    current_dir = target_dir
+                else:
+                    current_dir = f"{current_dir}/{target_dir}"
+                exec_cmd = f"cd {current_dir}"
+            else:
+                exec_cmd = f"cd {current_dir} && {cmd}"
+
+            extracted_steps.append({
+                "step": step_num,
+                "raw_cmd": cmd,
+                "cmd": exec_cmd,
+                "working_dir": current_dir
+            })
+            step_num += 1
+
+    return extracted_steps
+
+
+def execute_lab_instructions_agent(target, steps, env_vars=None, is_mock=False, event_callback=None):
+    """
+    Executes extracted lab instructions sequentially on the target environment.
+    Streams live progress and returns (success_bool, execution_log).
+    """
+    from .run_engine import execute_remote_ssh
+
+    def emit(event_type, payload):
+        if event_callback:
+            event_callback(event_type, payload)
+
+    total = len(steps)
+    results = []
+    success = True
+
+    for item in steps:
+        s_num = item["step"]
+        s_cmd = item["cmd"]
+        raw = item["raw_cmd"]
+        emit("ai_step_start", {
+            "step": s_num,
+            "total": total,
+            "cmd": raw
+        })
+
+        if is_mock:
+            exit_code = 0
+            stdout = f"Simulated: {raw}"
+            stderr = ""
+        else:
+            exit_code, stdout, stderr = execute_remote_ssh(target, s_cmd, env_vars=env_vars)
+
+        if exit_code != 0:
+            success = False
+
+        results.append({
+            "step": s_num,
+            "cmd": raw,
+            "exit_code": exit_code,
+            "stdout": stdout,
+            "stderr": stderr
+        })
+
+        emit("ai_step_done", {
+            "step": s_num,
+            "cmd": raw,
+            "exit_code": exit_code,
+            "stdout": (stdout or "")[:300],
+            "stderr": (stderr or "")[:300]
+        })
+
+    return success, results
+
