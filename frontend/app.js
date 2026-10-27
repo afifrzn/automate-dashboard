@@ -194,13 +194,6 @@ function renderActiveView(viewName) {
       break;
   }
 }
-      renderReports();
-      break;
-    case "settings":
-      renderSettings();
-      break;
-  }
-}
 
 // ==================== 7.2 Overview View ====================
 async function renderOverview() {
@@ -298,8 +291,9 @@ async function renderCourses() {
   container.innerHTML = `<div style="color: var(--text-muted);">Loading courses explorer for '${escapeHtml(appState.selectedCourse)}'...</div>`;
 
   try {
-    const res = await fetch(`${API_BASE}/courses/${appState.selectedCourse}/labs`);
-    const labs = await res.json();
+    const res = await fetch(`${API_BASE}/courses/${encodeURIComponent(appState.selectedCourse)}/labs`);
+    const data = await res.json();
+    const labs = Array.isArray(data) ? data : [];
     appState.labs = labs;
 
     container.innerHTML = `
@@ -1717,16 +1711,32 @@ async function loadSampleImport(sampleName) {
 }
 
 async function refreshCourseDropdown() {
+  const select = document.getElementById("courseSelect");
   try {
     const res = await fetch(`${API_BASE}/courses`);
+    if (!res.ok) {
+      if (select) select.innerHTML = '<option value="">(Failed to load courses)</option>';
+      return;
+    }
     const courses = await res.json();
-    const select = document.getElementById("courseSelect");
-    select.innerHTML = courses.map(c => `<option value="${c.slug}">${c.slug} (${c.title})</option>`).join('');
-    if (courses.length > 0 && !courses.find(c => c.slug === appState.selectedCourse)) {
+    if (!Array.isArray(courses) || courses.length === 0) {
+      if (select) select.innerHTML = '<option value="">(No courses uploaded)</option>';
+      appState.selectedCourse = "";
+      return;
+    }
+    if (select) {
+      select.innerHTML = courses.map(c => `<option value="${c.slug}">${c.slug} (${c.title || c.slug})</option>`).join('');
+    }
+    if (!appState.selectedCourse || !courses.find(c => c.slug === appState.selectedCourse)) {
       appState.selectedCourse = courses[0].slug;
     }
-    select.value = appState.selectedCourse;
-  } catch (e) {}
+    if (select) {
+      select.value = appState.selectedCourse;
+    }
+  } catch (e) {
+    console.error("Failed to load courses:", e);
+    if (select) select.innerHTML = '<option value="">(Error loading courses)</option>';
+  }
 }
 
 // ==================== AI Agent Handlers ====================

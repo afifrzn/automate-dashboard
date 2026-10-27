@@ -239,7 +239,7 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                 return
             course_id = crow["id"]
 
-            c.execute("SELECT * FROM labs WHERE course_id = ? ORDER BY chapter, part", (course_id,))
+            c.execute("SELECT * FROM labs WHERE course_id = ? OR course_id = ? ORDER BY chapter, part", (course_id, course_slug))
             labs = [dict(r) for r in c.fetchall()]
 
             # Attach grade cases & lint counts
