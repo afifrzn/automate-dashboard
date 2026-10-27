@@ -584,16 +584,52 @@ def extract_instructions_from_lab_md(lab_md, target=None, env_vars=None, lab=Non
             if cmd.startswith("nusactl grade"):
                 continue
 
+            if cmd == "nusactl login" or cmd.startswith("nusactl login"):
+                password = target.get("nusactl_password") or env_vars.get("NUSA_PASSWORD") or ""
+                if password:
+                    cmd = f'printf "%s\\n%s\\n" "{username}" "{password}" | nusactl login 2>/dev/null || nusactl status 2>/dev/null || true'
+                else:
+                    cmd = 'nusactl status 2>/dev/null || true'
+
+            if cmd.startswith("nusactl start "):
+                cmd = f"{cmd} || true"
+
             cmd = cmd.replace("[username akun git]", username)
             cmd = cmd.replace("[email akun git]", email)
-            cmd = cmd.replace("<hash>", "$(git log --oneline 2>/dev/null | head -n 1 | cut -d' ' -f1)")
             if "$NUSA_USERNAME" in cmd:
                 cmd = cmd.replace("$NUSA_USERNAME", username)
             if "$NUSA_PASSWORD" in cmd and target.get("nusactl_password"):
                 cmd = cmd.replace("$NUSA_PASSWORD", target["nusactl_password"])
 
+            if "<hash>" in cmd or "<commit-hash>" in cmd or "[hash]" in cmd:
+                # Find quoted commit message in surrounding markdown context
+                idx = lab_md.find(line)
+                context_before = lab_md[max(0, idx - 400):idx] if idx != -1 else ""
+                quotes = re.findall(r'["\']([^"\']+)["\']', context_before)
+                target_msg = None
+                for q in reversed(quotes):
+                    if len(q.split()) >= 2 and not q.startswith("-"):
+                        target_msg = q
+                        break
+                if target_msg:
+                    resolve_hash = f'TARGET_HASH=$(git log --oneline | grep -F "{target_msg}" | head -n 1 | awk \'{{print $1}}\'); [ -z "$TARGET_HASH" ] && TARGET_HASH=$(git log --oneline | sed -n "2p" | awk \'{{print $1}}\')'
+                else:
+                    resolve_hash = 'TARGET_HASH=$(git log --oneline | sed -n "2p" | awk \'{print $1}\')'
+
+                cmd = f'{resolve_hash}; git reset --mixed "$TARGET_HASH"'
+
+            if cmd.startswith("git restore "):
+                rest_file = cmd[12:].strip()
+                cmd = f'(git restore {rest_file} 2>/dev/null || git checkout -- {rest_file} 2>/dev/null || true)'
+
+            if cmd.startswith("git commit "):
+                cmd = f'(git diff --cached --quiet || {cmd}) || true'
+
             if cmd.startswith("mkdir ") and "-p" not in cmd:
                 cmd = cmd.replace("mkdir ", "mkdir -p ", 1)
+
+            if cmd.startswith("rm ") and "-f" not in cmd:
+                cmd = cmd.replace("rm ", "rm -f ", 1)
 
             if cmd.startswith("cd "):
                 target_dir = cmd[3:].strip()
