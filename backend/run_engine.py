@@ -209,12 +209,14 @@ def compute_verdict(exit_code, stdout, stderr, expect):
 
     return "FAIL"
 
-def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None, scenario=None, user_id="operator", event_callback=None, follow_lab_md=False, grade_slug=None):
+def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None, scenario=None, user_id="operator", event_callback=None, follow_lab_md=False, grade_slug=None, workflow="standard"):
     """
     Executes a complete grading run for a lab according to Section 10.
-    Executes 'nusactl grade <slug>' (e.g. glpc-001-1, dok8s-001-1, gladm-001-1).
-    If follow_lab_md is True (or state is "solved"), the AI Agent reads the Lab MD,
-    executes the instructions on the target environment, and then runs the grader checks.
+    Supports standard execution or the 4-Step Automated Workflow:
+    1. First grade before following instructions (Initial Baseline)
+    2. Following instructions (AI Solver on Target VM)
+    3. Manually (Grade manual via bash test cases)
+    4. Grade using nusactl grade (Platform tool grade)
     """
     conn = get_connection()
     c = conn.cursor()
@@ -224,7 +226,7 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
             event_callback(event_type, payload)
 
     now = datetime.now(timezone.utc).isoformat()
-    emit_event("run_start", {"run_id": run_id, "status": "running", "timestamp": now})
+    emit_event("run_start", {"run_id": run_id, "status": "running", "timestamp": now, "workflow": workflow})
 
     # Merge lab default variables with user-provided variables
     effective_vars = dict(lab.get("vars") or {})
@@ -253,7 +255,7 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
     is_mock_target = target.get("host") in ["localhost", "mock", "127.0.0.1", "test-vm"] or not target.get("host")
 
     # ==================== AI Lab MD Instruction Execution ====================
-    from .ai_agent import resolve_lab_markdown, extract_instructions_from_lab_md, execute_lab_instructions_agent, resolve_nusactl_grade_slug
+    from .ai_agent import resolve_lab_markdown, extract_instructions_from_lab_md, execute_lab_instructions_agent, resolve_nusactl_grade_slug, synthesize_cases_from_lab_md
 
     lab_md = lab.get("lab_md")
     if not lab_md:
@@ -271,7 +273,89 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
         lab_md=lab_md
     )
 
-    should_follow = follow_lab_md or (state == "solved")
+    # Synthesize cases if empty and lab_md is present
+    if not cases and lab_md:
+        cases = synthesize_cases_from_lab_md(lab_md, target=target)
+
+    # If cases are mismatched (e.g. legacy merge-conflict for glpc-005-1 dasar-git-2), align them
+    target_username = target.get("nusactl_username") or target.get("user") or effective_vars.get("NUSA_USERNAME") or "afifr"
+    if (target_grade_slug == "glpc-005-1" or "dasar-git-2" in str(lab_md or "")) and any("merge-conflict" in str(c.get("cmd") or "") for c in cases):
+        cases = [
+            {
+                "case_index": 1,
+                "name": "case 1 - Memeriksa branch yang sudah dibuat di remote repository",
+                "cmd": f'cd ~/dasar-git-2 && (git branch -a | grep -E "{target_username}" || git branch -r | grep -E "{target_username}")',
+                "expect": target_username,
+                "log_cmd": 'echo "Remote branches: $(cd ~/dasar-git-2 && git branch -a 2>/dev/null | tr \'\\n\' \' \')"'
+            },
+            {
+                "case_index": 2,
+                "name": "case 2 - Memeriksa isi file README.md pada branch username",
+                "cmd": f'cd ~/dasar-git-2 && (git checkout {target_username} 2>/dev/null || true); cat README.md | grep -Eo "Baris ini dibuat oleh"',
+                "expect": "Baris ini dibuat oleh",
+                "log_cmd": 'echo "README: $(cd ~/dasar-git-2 && head -n 3 README.md 2>/dev/null)"'
+            },
+            {
+                "case_index": 3,
+                "name": "case 3 - Memeriksa status git terbaru setelah push branch",
+                "cmd": 'cd ~/dasar-git-2 && (git status | grep -Eo "nothing to commit" || echo "dirty")',
+                "expect": "nothing to commit",
+                "log_cmd": 'echo "Status: $(cd ~/dasar-git-2 && git status --short 2>/dev/null)"'
+            }
+        ]
+
+    # ==================== STAGE 1 (4-Step Workflow): Pre-Instructions Baseline Grade ====================
+    pre_verdict = "FAIL"
+    if workflow == "4step":
+        emit_event("pipeline_stage_start", {
+            "stage": 1,
+            "total_stages": 4,
+            "name": "First grade before following instructions (Initial Baseline)"
+        })
+
+        pre_grade_cmd = f"nusactl grade {target_grade_slug}"
+        emit_event("tool_grade_start", {
+            "slug": target_grade_slug,
+            "cmd": pre_grade_cmd,
+            "is_pregrade": True
+        })
+
+        if is_mock_target:
+            pre_exit = 1
+            pre_out = (
+                f"[-] Evaluating initial nusactl grade {target_grade_slug}...\n"
+                f"[-] Baseline check: Unsolved as expected.\n"
+                f"[*] Score -> 0"
+            )
+            pre_err = ""
+            pre_verdict = "FAIL"
+        else:
+            pre_exit, pre_out, pre_err = execute_remote_ssh(target, pre_grade_cmd, env_vars=effective_vars)
+            clean_pre = re.sub(r'\x1b\[[0-9;]*m', '', pre_out or "").lower()
+            if "score -> 100" in clean_pre or "100%" in clean_pre:
+                pre_verdict = "PASS"
+            else:
+                pre_verdict = "FAIL"
+
+        emit_event("baseline_grade_complete", {
+            "slug": target_grade_slug,
+            "cmd": pre_grade_cmd,
+            "exit_code": pre_exit,
+            "stdout": (pre_out or "").strip(),
+            "stderr": (pre_err or "").strip(),
+            "verdict": pre_verdict,
+            "state": "unsolved"
+        })
+
+    # ==================== STAGE 2: Following Instructions (AI Solver) ====================
+    should_follow = follow_lab_md or (state == "solved") or (workflow == "4step")
+
+    if workflow == "4step":
+        emit_event("pipeline_stage_start", {
+            "stage": 2,
+            "total_stages": 4,
+            "name": "Following instructions (AI Solver on Target VM)"
+        })
 
     if should_follow and lab_md:
         emit_event("ai_md_reading", {
@@ -342,34 +426,122 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
     debug_logs = []
     cross_checks = []
 
-    # If cases are mismatched (e.g. legacy merge-conflict for glpc-005-1 dasar-git-2), align them
-    target_username = target.get("nusactl_username") or target.get("user") or effective_vars.get("NUSA_USERNAME") or "afifr"
-    if (target_grade_slug == "glpc-005-1" or "dasar-git-2" in str(lab_md or "")) and any("merge-conflict" in str(c.get("cmd") or "") for c in cases):
-        cases = [
-            {
-                "case_index": 1,
-                "name": "case 1 - Memeriksa branch yang sudah dibuat di remote repository",
-                "cmd": f'cd ~/dasar-git-2 && (git branch -a | grep -E "{target_username}" || git branch -r | grep -E "{target_username}")',
-                "expect": target_username,
-                "log_cmd": 'echo "Remote branches: $(cd ~/dasar-git-2 && git branch -a 2>/dev/null | tr \'\\n\' \' \')"'
-            },
-            {
-                "case_index": 2,
-                "name": "case 2 - Memeriksa isi file README.md pada branch username",
-                "cmd": f'cd ~/dasar-git-2 && (git checkout {target_username} 2>/dev/null || true); cat README.md | grep -Eo "Baris ini dibuat oleh"',
-                "expect": "Baris ini dibuat oleh",
-                "log_cmd": 'echo "README: $(cd ~/dasar-git-2 && head -n 3 README.md 2>/dev/null)"'
-            },
-            {
-                "case_index": 3,
-                "name": "case 3 - Memeriksa status git terbaru setelah push branch",
-                "cmd": 'cd ~/dasar-git-2 && (git status | grep -Eo "nothing to commit" || echo "dirty")',
-                "expect": "nothing to commit",
-                "log_cmd": 'echo "Status: $(cd ~/dasar-git-2 && git status --short 2>/dev/null)"'
-            }
-        ]
+    # ==================== STAGE 3 (or Standard): Manual Grade via Bash ====================
+    if workflow == "4step":
+        emit_event("pipeline_stage_start", {
+            "stage": 3,
+            "total_stages": 4,
+            "name": "Manually (Grade manual via bash test cases)"
+        })
 
-    # ==================== Execute nusactl grade <slug> ====================
+    passed_count = 0
+    total_count = len(cases)
+
+    for idx, case in enumerate(cases):
+        case_idx = case.get("case_index", idx + 1)
+        name = case.get("name", f"case {case_idx}")
+        cmd = case.get("cmd", "")
+        expect = str(case.get("expect", ""))
+        hint = case.get("hint", "")
+        debug = str(case.get("debug", "true")).lower()
+        log_cmd = case.get("log_cmd", "")
+
+        emit_event("case_start", {"case_index": case_idx, "name": name})
+
+        start_time = time.time()
+
+        if is_mock_target:
+            exit_code, stdout, stderr, log_out, log_code, log_status = simulate_case_execution(
+                cmd, expect, state=("solved" if should_follow else state), log_cmd=log_cmd, debug=debug, lab_desc=lab.get("description", "")
+            )
+        else:
+            exit_code, stdout, stderr = execute_remote_ssh(target, cmd, env_vars=effective_vars)
+            run_log = (debug == "true") or (compute_verdict(exit_code, stdout, stderr, expect) != "PASS" and debug != "false")
+            if run_log and log_cmd:
+                log_code, log_out, log_err = execute_remote_ssh(target, log_cmd, env_vars=effective_vars)
+                log_status = "ERROR" if (log_code != 0 or "not found" in log_err.lower()) else "OK"
+            else:
+                log_out = ""
+                log_code = 0
+                log_status = "OK"
+
+        duration_ms = int((time.time() - start_time) * 1000)
+
+        # Verdict calculation
+        verdict = compute_verdict(exit_code, stdout, stderr, expect)
+        if verdict == "PASS":
+            passed_count += 1
+
+        # Redact secrets
+        redacted_stdout = redact_text(stdout)
+        redacted_stderr = redact_text(stderr)
+        redacted_log = redact_text(log_out)
+        redacted_cmd = redact_text(cmd)
+
+        # Truncate
+        clean_out, truncated = truncate_output(redacted_stdout)
+
+        # Build Diagnosis
+        if verdict == "PASS":
+            diagnosis = "Check matched expected state."
+            likely_cause = None
+            suggested_fix = None
+        elif verdict == "FAIL":
+            diagnosis = f"Expected '{expect}', actual output was '{clean_out}'."
+            likely_cause = "Hypothesis: Learner has not yet completed the required step or used a different tag/setting."
+            suggested_fix = hint or "Follow the lab instructions to configure the expected resource."
+        else: # ERROR
+            diagnosis = f"Grader check broke or returned non-contract output: exit={exit_code}, stderr='{redacted_stderr}'"
+            likely_cause = "Check environment or SSH failure."
+            suggested_fix = "Verify environment connectivity or correct grader command syntax."
+
+        # Insert case result
+        res_id = str(uuid.uuid4())
+        c.execute("""
+            INSERT INTO case_results (id, run_id, case_index, name, mode, expect, actual, verdict, cmd_exit_code, stdout, stderr, duration_ms, truncated)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (res_id, run_id, case_idx, name, mode, expect, clean_out, verdict, exit_code, clean_out, redacted_stderr, duration_ms, 1 if truncated else 0))
+
+        # Insert debug log
+        dbg_id = str(uuid.uuid4())
+        c.execute("""
+            INSERT INTO debug_logs (id, run_id, case_index, log_cmd_output, log_cmd_exit_code, log_cmd_status, diagnosis, likely_cause, suggested_fix)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (dbg_id, run_id, case_idx, redacted_log, log_code, log_status, diagnosis, likely_cause, suggested_fix))
+
+        case_results.append({
+            "case_index": case_idx,
+            "name": name,
+            "verdict": verdict,
+            "exit_code": exit_code,
+            "stdout": clean_out,
+            "duration_ms": duration_ms
+        })
+
+        emit_event("case_complete", {
+            "case_index": case_idx,
+            "name": name,
+            "verdict": verdict,
+            "exit_code": exit_code,
+            "duration_ms": duration_ms
+        })
+
+    manual_verdict = "PASS" if (passed_count == total_count and total_count > 0) else ("FAIL" if total_count > 0 else "PASS")
+    if workflow == "4step":
+        emit_event("manual_grade_complete", {
+            "score_passed": passed_count,
+            "score_total": total_count,
+            "verdict": manual_verdict
+        })
+
+    # ==================== STAGE 4 (or Standard): Grade using nusactl grade ====================
+    if workflow == "4step":
+        emit_event("pipeline_stage_start", {
+            "stage": 4,
+            "total_stages": 4,
+            "name": f"Grade using nusactl grade ({target_grade_slug})"
+        })
+
     tool_grade_cmd = f"nusactl grade {target_grade_slug}"
     emit_event("tool_grade_start", {
         "slug": target_grade_slug,
@@ -377,7 +549,7 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
     })
 
     if is_mock_target:
-        if state == "solved":
+        if should_follow or state == "solved":
             tool_exit = 0
             tool_out = (
                 f"[-] Evaluating nusactl grade {target_grade_slug}...\n"
@@ -437,100 +609,15 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
         "verdict": tool_verdict
     })
 
-    passed_count = 0
-    total_count = len(cases)
-
-    for idx, case in enumerate(cases):
-        case_idx = case.get("case_index", idx + 1)
-        name = case.get("name", f"case {case_idx}")
-        cmd = case.get("cmd", "")
-        expect = str(case.get("expect", ""))
-        hint = case.get("hint", "")
-        debug = str(case.get("debug", "true")).lower()
-        log_cmd = case.get("log_cmd", "")
-
-        emit_event("case_start", {"case_index": case_idx, "name": name})
-
-        start_time = time.time()
-
-        # Check if real target SSH or simulated
-        is_mock_target = target.get("host") in ["localhost", "mock", "127.0.0.1", "test-vm"] or not target.get("host")
-        if is_mock_target:
-            exit_code, stdout, stderr, log_out, log_code, log_status = simulate_case_execution(
-                cmd, expect, state=state, log_cmd=log_cmd, debug=debug, lab_desc=lab.get("description", "")
-            )
-        else:
-            exit_code, stdout, stderr = execute_remote_ssh(target, cmd, env_vars=effective_vars)
-            # Evaluate debug log command if needed
-            run_log = (debug == "true") or (compute_verdict(exit_code, stdout, stderr, expect) != "PASS" and debug != "false")
-            if run_log and log_cmd:
-                log_code, log_out, log_err = execute_remote_ssh(target, log_cmd, env_vars=effective_vars)
-                log_status = "ERROR" if (log_code != 0 or "not found" in log_err.lower()) else "OK"
-            else:
-                log_out = ""
-                log_code = 0
-                log_status = "OK"
-
-        duration_ms = int((time.time() - start_time) * 1000)
-
-        # Verdict calculation
-        verdict = compute_verdict(exit_code, stdout, stderr, expect)
-        if verdict == "PASS":
-            passed_count += 1
-
-        # Redact secrets
-        redacted_stdout = redact_text(stdout)
-        redacted_stderr = redact_text(stderr)
-        redacted_log = redact_text(log_out)
-        redacted_cmd = redact_text(cmd)
-
-        # Truncate
-        clean_out, truncated = truncate_output(redacted_stdout)
-
-        # Build Diagnosis
-        if verdict == "PASS":
-            diagnosis = "Check matched expected state."
-            likely_cause = None
-            suggested_fix = None
-        elif verdict == "FAIL":
-            diagnosis = f"Expected '{expect}', actual output was '{clean_out}'."
-            likely_cause = "Hypothesis: Learner has not yet completed the required step or used a different tag/setting."
-            suggested_fix = hint or "Follow the lab instructions to configure the expected resource."
-        else: # ERROR
-            diagnosis = f"Grader check broke or returned non-contract output: exit={exit_code}, stderr='{redacted_stderr}'"
-            likely_cause = "Check environment or SSH failure."
-            suggested_fix = "Verify environment connectivity or correct grader command syntax."
-
-        # Insert case result
-        res_id = str(uuid.uuid4())
-        c.execute("""
-            INSERT INTO case_results (id, run_id, case_index, name, mode, expect, actual, verdict, cmd_exit_code, stdout, stderr, duration_ms, truncated)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (res_id, run_id, case_idx, name, mode, expect, clean_out, verdict, exit_code, clean_out, redacted_stderr, duration_ms, 1 if truncated else 0))
-
-        # Insert debug log
-        dbg_id = str(uuid.uuid4())
-        c.execute("""
-            INSERT INTO debug_logs (id, run_id, case_index, log_cmd_output, log_cmd_exit_code, log_cmd_status, diagnosis, likely_cause, suggested_fix)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (dbg_id, run_id, case_idx, redacted_log, log_code, log_status, diagnosis, likely_cause, suggested_fix))
-
-        # Tool mode simulation / cross check
-        if mode in ["tool", "both"]:
-            # Tool mode simulated outcome
-            tool_verdict = verdict
-            agree = (verdict == tool_verdict)
-            xc_id = str(uuid.uuid4())
-            c.execute("""
-                INSERT INTO cross_checks (id, run_id, case_index, manual_verdict, tool_verdict, agree, note)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (xc_id, run_id, case_idx, verdict, tool_verdict, 1 if agree else 0, "Tool and manual verdict match"))
-
-        emit_event("case_complete", {
-            "case_index": case_idx,
-            "name": name,
-            "verdict": verdict,
-            "duration_ms": duration_ms
+    if workflow == "4step":
+        final_pipeline_verdict = "PASS" if (manual_verdict == "PASS" and tool_verdict == "PASS") else ("FAIL" if (manual_verdict == "FAIL" or tool_verdict == "FAIL") else manual_verdict)
+        emit_event("pipeline_complete", {
+            "workflow": "4step",
+            "stage_1_baseline": {"verdict": pre_verdict},
+            "stage_2_instructions": {"steps_count": len(steps) if (should_follow and 'steps' in locals()) else 0},
+            "stage_3_manual": {"score_passed": passed_count, "score_total": total_count, "verdict": manual_verdict},
+            "stage_4_tool": {"slug": target_grade_slug, "verdict": tool_verdict, "exit_code": tool_exit},
+            "final_verdict": final_pipeline_verdict
         })
 
     # Overall lab verdict

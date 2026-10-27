@@ -854,3 +854,76 @@ def execute_lab_instructions_agent(target, steps, env_vars=None, is_mock=False, 
 
     return success, results
 
+
+def synthesize_cases_from_lab_md(lab_md, target=None):
+    """
+    Synthesizes meaningful grader test cases directly from Lab Markdown instructions
+    when no manual cases are predefined in the database, or for ad-hoc custom lab runs.
+    """
+    if not lab_md:
+        return []
+
+    target = target or {}
+    username = target.get("nusactl_username") or target.get("user") or "afifr"
+
+    cases = []
+    # 1. Check if git repo exists in markdown
+    repos = re.findall(r'git\s+clone\s+[^\s]+/([a-zA-Z0-9_\-]+)(?:\.git)?', lab_md)
+    work_dir = f"~/{repos[0]}" if repos else ""
+    if not work_dir:
+        dirs = re.findall(r'(?:mkdir|cd)\s+(?:-p\s+)?([a-zA-Z0-9_\-]+)', lab_md)
+        if dirs and dirs[0] not in ["~", "/", "."]:
+            work_dir = f"~/{dirs[0]}"
+        else:
+            work_dir = "~"
+
+    # Check for git push / branch creation
+    has_push = bool(re.search(r'git\s+push', lab_md))
+    has_branch = bool(re.search(r'git\s+checkout\s+-b', lab_md))
+    if has_branch or has_push:
+        cases.append({
+            "case_index": len(cases) + 1,
+            "name": f"case {len(cases) + 1} - Memeriksa branch {username} pada repositori",
+            "cmd": f'cd {work_dir} && (git branch -a | grep -E "{username}" || git branch -r | grep -E "{username}")',
+            "expect": username,
+            "hint": f"Pastikan branch {username} telah dibuat dan di-push ke remote",
+            "log_cmd": f'echo "Branches: $(cd {work_dir} && git branch -a 2>/dev/null | tr \'\\n\' \' \')"'
+        })
+
+    # Check for edited files
+    files = re.findall(r'(?:nano|vi|vim|touch|cat\s*>\s*)\s+([a-zA-Z0-9_\-\.]+)', lab_md)
+    for f in list(dict.fromkeys(files)): # preserve order, unique
+        if f not in ["~", ".", ".."]:
+            cases.append({
+                "case_index": len(cases) + 1,
+                "name": f"case {len(cases) + 1} - Memeriksa file {f}",
+                "cmd": f'cd {work_dir} && [ -f "{f}" ] && echo "File {f} exists"',
+                "expect": f"File {f} exists",
+                "hint": f"Pastikan file {f} sudah dibuat",
+                "log_cmd": f'echo "{f}: $(cd {work_dir} && head -n 3 {f} 2>/dev/null)"'
+            })
+
+    # Check for git commit / status
+    if "git commit" in lab_md or "git status" in lab_md:
+        cases.append({
+            "case_index": len(cases) + 1,
+            "name": f"case {len(cases) + 1} - Memeriksa status git terbaru",
+            "cmd": f'cd {work_dir} && (git status | grep -Eo "nothing to commit" || echo "dirty")',
+            "expect": "nothing to commit",
+            "hint": "Pastikan semua perubahan sudah di-commit dan repositori bersih",
+            "log_cmd": f'echo "Status: $(cd {work_dir} && git status --short 2>/dev/null)"'
+        })
+
+    # Fallback if no specific patterns found
+    if not cases:
+        cases.append({
+            "case_index": 1,
+            "name": "case 1 - Memeriksa kesiapan lingkungan lab",
+            "cmd": f'cd {work_dir} && echo "READY"',
+            "expect": "READY",
+            "hint": "Lingkungan lab terkonfigurasi",
+            "log_cmd": f'ls -la {work_dir}'
+        })
+
+    return cases
+

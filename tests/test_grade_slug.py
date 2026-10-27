@@ -149,5 +149,96 @@ Catatan:
         self.assertIn("afriansyah77:glpat-ywD3Mtt1tEsTnoxOVHVil286MQp1Ojh6c2lvCw.01.121rppqyu", push_cmd)
         self.assertIn("origin afifr", push_cmd)
 
+    def test_synthesize_cases_from_lab_md(self):
+        from backend.ai_agent import synthesize_cases_from_lab_md
+        md = """
+1. Clone
+```console
+$ git clone https://gitlab.com/example/demo.git
+$ cd demo
+```
+2. Branch
+```console
+$ git checkout -b feature-test
+```
+3. Edit
+```console
+$ nano config.yaml
+```
+4. Commit & Push
+```console
+$ git add .
+$ git commit -m "Add config"
+$ git push origin feature-test
+```
+"""
+        cases = synthesize_cases_from_lab_md(md, target={"nusactl_username": "afifr"})
+        self.assertTrue(len(cases) >= 2)
+        names = [c["name"] for c in cases]
+        self.assertTrue(any("branch" in n.lower() for n in names))
+        self.assertTrue(any("config.yaml" in n.lower() for n in names))
+
+    def test_4step_automated_pipeline_execution(self):
+        from backend.run_engine import run_lab
+        lab = {
+            "id": "test-lab-4step",
+            "export_id": "test-lab-4step",
+            "chapter": "005",
+            "part": "1",
+            "course": "glpc",
+            "description": "Test 4-Step Pipeline",
+            "vars": {},
+            "start": [],
+            "finish": [],
+            "grade": [],
+            "lab_md": """
+```console
+$ nusactl login
+$ nusactl start glpc-005-1
+$ cd ~
+$ mkdir -p dasar-git-2 && cd dasar-git-2
+$ echo "Hello" > README.md
+```
+"""
+        }
+        target = {
+            "id": "mock-vm",
+            "host": "mock",
+            "user": "student",
+            "password": "",
+            "port": 22
+        }
+
+        events = []
+        def callback(event_type, payload):
+            events.append((event_type, payload))
+
+        result = run_lab(
+            run_id="test-run-4step",
+            target=target,
+            lab=lab,
+            workflow="4step",
+            event_callback=callback,
+            grade_slug="glpc-005-1"
+        )
+
+        event_types = [e[0] for e in events]
+        self.assertIn("pipeline_stage_start", event_types)
+        self.assertIn("baseline_grade_complete", event_types)
+        self.assertIn("ai_instructions_complete", event_types)
+        self.assertIn("manual_grade_complete", event_types)
+        self.assertIn("tool_grade_complete", event_types)
+        self.assertIn("pipeline_complete", event_types)
+
+        stages = [e[1]["stage"] for e in events if e[0] == "pipeline_stage_start"]
+        self.assertEqual(stages, [1, 2, 3, 4])
+
+        pipe_complete = next(e[1] for e in events if e[0] == "pipeline_complete")
+        self.assertEqual(pipe_complete["workflow"], "4step")
+        self.assertEqual(pipe_complete["stage_1_baseline"]["verdict"], "FAIL")
+        self.assertEqual(pipe_complete["stage_3_manual"]["verdict"], "PASS")
+        self.assertEqual(pipe_complete["stage_4_tool"]["verdict"], "PASS")
+        self.assertEqual(pipe_complete["final_verdict"], "PASS")
+
 if __name__ == "__main__":
     unittest.main()

@@ -25,7 +25,7 @@ from .reports import (
     generate_junit_xml
 )
 from .seed_data import load_seed_data
-from .ai_agent import run_grading_remediation_agent, run_course_update_agent, resolve_lab_markdown, extract_instructions_from_lab_md, resolve_nusactl_grade_slug
+from .ai_agent import run_grading_remediation_agent, run_course_update_agent, resolve_lab_markdown, extract_instructions_from_lab_md, resolve_nusactl_grade_slug, synthesize_cases_from_lab_md
 
 # Global event queues for SSE per run_id
 RUN_EVENT_QUEUES = {}
@@ -697,13 +697,7 @@ class AppRequestHandler(BaseHTTPRequestHandler):
             follow_lab_md = body.get("follow_lab_md", (state == "solved"))
             custom_lab_md = body.get("custom_lab_md")
             grade_slug = body.get("grade_slug")
-
-            c.execute("SELECT * FROM labs WHERE id = ?", (lab_id,))
-            lab = c.fetchone()
-            if not lab:
-                conn.close()
-                self._send_json({"error": "Lab not found"}, 404)
-                return
+            workflow = body.get("workflow", "standard")
 
             c.execute("SELECT * FROM targets WHERE id = ?", (target_id,))
             target = c.fetchone()
@@ -712,15 +706,44 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"error": "Target not found"}, 404)
                 return
 
-            lab_dict = dict(lab)
-            lab_dict["vars"] = json.loads(lab["vars_json"] or "{}")
-            lab_dict["start"] = json.loads(lab["start_json"] or "[]")
-            lab_dict["finish"] = json.loads(lab["finish_json"] or "[]")
-            if custom_lab_md:
-                lab_dict["lab_md"] = custom_lab_md
+            # Support ad-hoc / direct MD run without preexisting lab in database
+            if (not lab_id or lab_id in ["custom", "adhoc", "ad-hoc"]) and custom_lab_md:
+                resolved_slug = resolve_nusactl_grade_slug({}, custom_slug=grade_slug, lab_md=custom_lab_md)
+                lab_dict = {
+                    "id": f"adhoc-{uuid.uuid4().hex[:8]}",
+                    "export_id": f"adhoc-{resolved_slug}",
+                    "course_id": "adhoc",
+                    "chapter": resolved_slug.split("-")[1] if len(resolved_slug.split("-")) > 1 else "001",
+                    "part": resolved_slug.split("-")[2] if len(resolved_slug.split("-")) > 2 else "1",
+                    "description": f"Ad-hoc Lab ({resolved_slug})",
+                    "vars_json": "{}",
+                    "start_json": "[]",
+                    "finish_json": "[]",
+                    "slug": resolved_slug,
+                    "vars": user_vars,
+                    "start": [],
+                    "finish": [],
+                    "grade": synthesize_cases_from_lab_md(custom_lab_md, target=dict(target)),
+                    "lab_md": custom_lab_md
+                }
+                lab = lab_dict
+            else:
+                c.execute("SELECT * FROM labs WHERE id = ?", (lab_id,))
+                lab_row = c.fetchone()
+                if not lab_row:
+                    conn.close()
+                    self._send_json({"error": "Lab not found"}, 404)
+                    return
+                lab = dict(lab_row)
+                lab_dict = dict(lab)
+                lab_dict["vars"] = json.loads(lab["vars_json"] or "{}")
+                lab_dict["start"] = json.loads(lab["start_json"] or "[]")
+                lab_dict["finish"] = json.loads(lab["finish_json"] or "[]")
+                if custom_lab_md:
+                    lab_dict["lab_md"] = custom_lab_md
 
-            c.execute("SELECT * FROM grade_cases WHERE lab_id = ? ORDER BY case_index", (lab["id"],))
-            lab_dict["grade"] = [dict(case) for case in c.fetchall()]
+                c.execute("SELECT * FROM grade_cases WHERE lab_id = ? ORDER BY case_index", (lab["id"],))
+                lab_dict["grade"] = [dict(case) for case in c.fetchall()]
 
             run_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{lab['export_id']}-{state}"
             now = datetime.now(timezone.utc).isoformat()
@@ -752,7 +775,8 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                     user_id=user_id,
                     event_callback=dispatch_event,
                     follow_lab_md=follow_lab_md,
-                    grade_slug=grade_slug
+                    grade_slug=grade_slug,
+                    workflow=workflow
                 )
 
             t = threading.Thread(target=worker, daemon=True)

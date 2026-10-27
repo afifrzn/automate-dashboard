@@ -532,6 +532,12 @@ async function renderRuns() {
           ${appState.labs.map(l => `<option value="${l.id}">${l.description} (${l.chapter}.${l.part})</option>`).join('')}
         </select>
 
+        <label style="display: block; font-size: 12px; margin-bottom: 4px; color: #c084fc; font-weight: 600;">⚡ Workflow Mode:</label>
+        <select id="runWorkflowSelect" style="width: 100%; margin-bottom: 12px; background: rgba(139, 92, 246, 0.12); border: 1px solid #8b5cf6; color: #f8fafc; font-weight: 600; padding: 6px 10px; border-radius: 4px;">
+          <option value="4step" selected>⚡ 4-Step Pipeline: Baseline &rarr; Solve &rarr; Manual &rarr; nusactl</option>
+          <option value="standard">Standard Run (Single Mode)</option>
+        </select>
+
         <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary);">Target Environment:</label>
         <select id="runTargetSelect" style="width: 100%; margin-bottom: 12px;">
           ${appState.targets.map(t => `<option value="${t.id}">${t.name} [${t.modifiable ? 'MODIFIABLE' : 'IMMUTABLE'}]</option>`).join('')}
@@ -577,17 +583,18 @@ async function renderRuns() {
           <div>State-changing steps (start, solution, finish) require Operator approval gate on modifiable targets.</div>
         </div>
 
-        <button class="btn btn-primary" style="width: 100%; justify-content: center;" onclick="executeGradingRun()">
-          Start Grading Execution
+        <button class="btn btn-primary" style="width: 100%; justify-content: center; font-size: 13px; font-weight: 700; background: linear-gradient(135deg, #7c3aed, #2563eb); padding: 10px 14px; margin-bottom: 8px;" onclick="executeGradingRun()">
+          🚀 Run 4-Step Automated Flow
         </button>
 
         <!-- Lab MD Preview & Custom Editor Card -->
-        <div class="card" style="margin-top: 16px; border: 1px solid var(--border-color); background: var(--bg-secondary);">
+        <div class="card" style="margin-top: 12px; border: 1px solid var(--border-color); background: var(--bg-secondary);">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
             <strong style="font-size: 12px; color: var(--text-primary);">📖 Lab MD Instructions</strong>
             <div style="display: flex; gap: 4px;">
-              <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="previewParsedLabSteps()" title="Preview executable commands extracted by AI">🤖 Preview Steps</button>
-              <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="toggleEditLabMd()" title="Edit or paste custom Markdown instructions">✏️ Edit MD</button>
+              <button class="btn btn-primary" style="font-size: 10px; padding: 2px 7px; background: #8b5cf6;" onclick="runDirectFromMd()" title="Run 4-Step Pipeline directly from this Markdown">⚡ Run MD</button>
+              <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="previewParsedLabSteps()" title="Preview executable commands extracted by AI">🤖 Steps</button>
+              <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="toggleEditLabMd()" title="Edit or paste custom Markdown instructions">✏️ Edit</button>
             </div>
           </div>
           <div id="labMdInfo" style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">Loading Lab MD...</div>
@@ -721,14 +728,34 @@ async function previewParsedLabSteps() {
   }
 }
 
+async function runDirectFromMd() {
+  const editorInput = document.getElementById("labMdEditorInput");
+  const content = editorInput && editorInput.value.trim() ? editorInput.value.trim() : appState.currentLabMd;
+  if (!content) {
+    alert("Please provide or edit the Lab Markdown instructions first!");
+    return;
+  }
+  appState.currentLabMd = content;
+
+  // Auto set 4-step workflow and AI solver checked
+  const wf = document.getElementById("runWorkflowSelect");
+  if (wf) wf.value = "4step";
+  const follow = document.getElementById("runFollowLabMdCheckbox");
+  if (follow) follow.checked = true;
+
+  executeGradingRun();
+}
+
 async function executeGradingRun() {
-  const labId = document.getElementById("runLabSelect").value;
+  const labSelect = document.getElementById("runLabSelect");
+  const labId = (labSelect && labSelect.value) ? labSelect.value : "custom";
   const targetId = document.getElementById("runTargetSelect").value;
   const state = document.getElementById("runStateSelect").value;
   const mode = document.getElementById("runModeSelect").value;
   const rawVars = document.getElementById("runVarsInput").value;
-  const followLabMd = document.getElementById("runFollowLabMdCheckbox") ? document.getElementById("runFollowLabMdCheckbox").checked : false;
+  const followLabMd = document.getElementById("runFollowLabMdCheckbox") ? document.getElementById("runFollowLabMdCheckbox").checked : true;
   const gradeSlug = document.getElementById("runGradeSlugInput") ? document.getElementById("runGradeSlugInput").value.trim() : "";
+  const workflow = document.getElementById("runWorkflowSelect") ? document.getElementById("runWorkflowSelect").value : "4step";
 
   const varsObj = {};
   if (rawVars.includes("=")) {
@@ -741,7 +768,7 @@ async function executeGradingRun() {
 
   liveBadge.className = "badge badge-ai";
   liveBadge.textContent = "Connecting...";
-  logBox.innerHTML = `[${new Date().toISOString()}] Initializing execution run for lab '${labId}'...\n`;
+  logBox.innerHTML = `[${new Date().toISOString()}] Initializing ${workflow === '4step' ? '4-Step Automated Workflow' : 'Execution Run'}...\n`;
 
   try {
     const res = await fetch(`${API_BASE}/runs`, {
@@ -757,6 +784,7 @@ async function executeGradingRun() {
         state: state,
         mode: mode,
         grade_slug: gradeSlug,
+        workflow: workflow,
         vars: varsObj,
         follow_lab_md: followLabMd,
         custom_lab_md: appState.currentLabMd
@@ -776,6 +804,26 @@ async function executeGradingRun() {
 
     const sse = new EventSource(`${API_BASE}/runs/${runId}/events`);
     appState.activeRunEventSource = sse;
+
+    // 4-Step Pipeline stage listener
+    sse.addEventListener("pipeline_stage_start", (e) => {
+      const p = JSON.parse(e.data);
+      logBox.innerHTML += `\n<div style="background: rgba(139, 92, 246, 0.16); border-left: 4px solid #a855f7; padding: 8px 12px; margin: 12px 0 8px 0; border-radius: 4px; font-weight: 700; color: #f8fafc; font-size: 13px;">
+  <span style="color: #c084fc;">[STAGE ${p.stage}/${p.total_stages}]</span> ${escapeHtml(p.name)}
+</div>\n`;
+      logBox.scrollTop = logBox.scrollHeight;
+    });
+
+    sse.addEventListener("baseline_grade_complete", (e) => {
+      const p = JSON.parse(e.data);
+      logBox.innerHTML += `  <span style="color: #94a3b8; font-weight: 600;">Initial Baseline Check:</span> <span class="badge ${p.verdict === 'PASS' ? 'badge-pass' : 'badge-fail'}">${p.verdict} (Unsolved)</span>\n`;
+      if (p.stdout) {
+        const previewOut = p.stdout.trim().split('\n')[0];
+        logBox.innerHTML += `  <span style="color: #64748b; font-size: 11px;">| ${escapeHtml(previewOut)}</span>\n`;
+      }
+      logBox.innerHTML += `\n`;
+      logBox.scrollTop = logBox.scrollHeight;
+    });
 
     // AI Lab MD Instruction SSE listeners
     sse.addEventListener("ai_md_reading", (e) => {
@@ -822,6 +870,13 @@ async function executeGradingRun() {
       logBox.scrollTop = logBox.scrollHeight;
     });
 
+    sse.addEventListener("manual_grade_complete", (e) => {
+      const p = JSON.parse(e.data);
+      const ok = p.verdict === 'PASS';
+      logBox.innerHTML += `  <span style="color: ${ok ? '#4ade80' : '#f87171'}; font-weight: 700;">[MANUAL BASH GRADE RESULT: ${p.verdict}]</span> Score: ${p.score_passed}/${p.score_total}\n\n`;
+      logBox.scrollTop = logBox.scrollHeight;
+    });
+
     sse.addEventListener("tool_grade_start", (e) => {
       const p = JSON.parse(e.data);
       logBox.innerHTML += `<span style="color: #38bdf8; font-weight: 700;">🚀 [TOOL GRADER] Executing platform tool: <code>${escapeHtml(p.cmd)}</code>...</span>\n`;
@@ -839,7 +894,6 @@ async function executeGradingRun() {
       if (p.stderr) {
         logBox.innerHTML += `  <pre style="margin: 4px 0 8px 12px; color: #f87171; font-size: 11px; white-space: pre-wrap; font-family: var(--font-mono);">${escapeHtml(p.stderr)}</pre>`;
       }
-      logBox.innerHTML += `<span style="color: #e2e8f0; font-weight: 600;">🔍 [MANUAL GRADER] Evaluating case-by-case checks:</span>\n`;
       logBox.scrollTop = logBox.scrollHeight;
     });
 
@@ -853,6 +907,24 @@ async function executeGradingRun() {
       const p = JSON.parse(e.data);
       const verdictColor = p.verdict === 'PASS' ? '#4ade80' : (p.verdict === 'ERROR' ? '#fbbf24' : '#f87171');
       logBox.innerHTML += `  Verdict: <span style="color: ${verdictColor}; font-weight: 700;">[${p.verdict}]</span> (${p.duration_ms}ms)\n`;
+      logBox.scrollTop = logBox.scrollHeight;
+    });
+
+    sse.addEventListener("pipeline_complete", (e) => {
+      const p = JSON.parse(e.data);
+      const isPass = p.final_verdict === 'PASS';
+      logBox.innerHTML += `\n<div style="background: rgba(34, 197, 94, 0.12); border: 1px solid #22c55e; border-radius: 6px; padding: 12px; margin-top: 10px;">
+  <strong style="color: #4ade80; font-size: 13px;">🎉 4-STEP AUTOMATED PIPELINE COMPLETE</strong>
+  <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px; font-size: 12px;">
+    <div>1. Baseline Pre-Grade: <span class="badge badge-fail">${escapeHtml(p.stage_1_baseline.verdict)}</span></div>
+    <div>2. Instructions Executed: <span class="badge badge-pass">${p.stage_2_instructions.steps_count} steps</span></div>
+    <div>3. Manual Bash Grade: <span class="badge ${p.stage_3_manual.verdict === 'PASS' ? 'badge-pass' : 'badge-fail'}">${p.stage_3_manual.score_passed}/${p.stage_3_manual.score_total} (${p.stage_3_manual.verdict})</span></div>
+    <div>4. Platform Tool Grade: <span class="badge ${p.stage_4_tool.verdict === 'PASS' ? 'badge-pass' : 'badge-fail'}">${p.stage_4_tool.verdict} (${escapeHtml(p.stage_4_tool.slug)})</span></div>
+  </div>
+  <div style="margin-top: 10px; font-weight: 700; color: #f8fafc; font-size: 13px;">
+    Overall Workflow Verdict: <span class="badge ${isPass ? 'badge-pass' : 'badge-fail'}" style="font-size: 13px;">${p.final_verdict}</span>
+  </div>
+</div>\n`;
       logBox.scrollTop = logBox.scrollHeight;
     });
 
