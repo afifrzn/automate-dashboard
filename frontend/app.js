@@ -610,19 +610,22 @@ async function renderRuns() {
           <button class="btn btn-secondary" style="font-size: 11px; white-space: nowrap;" onclick="resetToDefaultGradeSlug()" title="Reset to auto-resolved slug">Auto Slug</button>
         </div>
 
-        <!-- Git Global Config Credentials Inputs -->
-        <div style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 12px; margin-bottom: 12px;">
-          <div style="font-size: 11px; font-weight: 700; color: #38bdf8; text-transform: uppercase; margin-bottom: 8px;">
-            🐙 Git Global Config (<code>git config --global user.name / email</code>)
+        <!-- Git Global Config Credentials Inputs (Optional) -->
+        <div id="gitConfigBox" style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 12px; margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-size: 11px; font-weight: 700; color: #38bdf8; text-transform: uppercase;">
+              🐙 Git Global Config <span style="font-size: 10px; font-weight: 400; color: var(--text-muted);">(Optional)</span>
+            </span>
+            <span id="gitConfigStatusNote" style="font-size: 10px; color: var(--text-muted);">Only used if lab steps include git config</span>
           </div>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
             <div>
               <label style="display: block; font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;">username akun git:</label>
-              <input type="text" id="runGitUserInput" value="${escapeHtml(localStorage.getItem('gitUsername') || 'afifr')}" placeholder="username akun git" style="width: 100%; font-family: var(--font-mono); font-size: 12px; padding: 6px 8px; box-sizing: border-box; background: var(--bg-code); color: #f8fafc; border: 1px solid var(--border-color); border-radius: 4px;">
+              <input type="text" id="runGitUserInput" value="${escapeHtml(localStorage.getItem('gitUsername') || '')}" placeholder="Optional (e.g. afifr)" style="width: 100%; font-family: var(--font-mono); font-size: 12px; padding: 6px 8px; box-sizing: border-box; background: var(--bg-code); color: #f8fafc; border: 1px solid var(--border-color); border-radius: 4px;">
             </div>
             <div>
               <label style="display: block; font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;">email akun git:</label>
-              <input type="text" id="runGitEmailInput" value="${escapeHtml(localStorage.getItem('gitEmail') || 'afifr@aditraining.id')}" placeholder="email akun git" style="width: 100%; font-family: var(--font-mono); font-size: 12px; padding: 6px 8px; box-sizing: border-box; background: var(--bg-code); color: #f8fafc; border: 1px solid var(--border-color); border-radius: 4px;">
+              <input type="text" id="runGitEmailInput" value="${escapeHtml(localStorage.getItem('gitEmail') || '')}" placeholder="Optional (e.g. afifr@aditraining.id)" style="width: 100%; font-family: var(--font-mono); font-size: 12px; padding: 6px 8px; box-sizing: border-box; background: var(--bg-code); color: #f8fafc; border: 1px solid var(--border-color); border-radius: 4px;">
             </div>
           </div>
         </div>
@@ -779,6 +782,20 @@ async function loadLabMdForSelectedLab() {
     if (previewEl) previewEl.textContent = appState.currentLabMd || "(No Lab Markdown available for this lab yet. Click 'Edit MD' to paste one.)";
     if (editorInput) editorInput.value = appState.currentLabMd;
 
+    const noteEl = document.getElementById("gitConfigStatusNote");
+    const hasGit = Boolean(appState.currentLabMd && (
+      appState.currentLabMd.includes("git config") ||
+      appState.currentLabMd.includes("akun git") ||
+      appState.currentLabMd.includes("user.name")
+    ));
+    if (noteEl) {
+      if (hasGit) {
+        noteEl.innerHTML = `<span style="color: #4ade80; font-weight: 600;">Active (git config detected in lab steps)</span>`;
+      } else {
+        noteEl.innerHTML = `<span style="color: var(--text-muted);">Inactive (no git config in this lab)</span>`;
+      }
+    }
+
     renderLabGradePreview();
 
     if (data.default_grade_slug) {
@@ -914,10 +931,16 @@ async function previewParsedLabSteps() {
 
   logBox.innerHTML = `[${new Date().toISOString()}] Parsing instructions from Lab MD for '${select.options[select.selectedIndex].text}'...\n`;
 
+  const labUsesGit = Boolean(appState.currentLabMd && (
+    appState.currentLabMd.includes("git config") ||
+    appState.currentLabMd.includes("akun git") ||
+    appState.currentLabMd.includes("user.name")
+  ));
+
   const gitUserInput = document.getElementById("runGitUserInput");
   const gitEmailInput = document.getElementById("runGitEmailInput");
-  const gitUsername = gitUserInput ? gitUserInput.value.trim() : (localStorage.getItem("gitUsername") || "afifr");
-  const gitEmail = gitEmailInput ? gitEmailInput.value.trim() : (localStorage.getItem("gitEmail") || "afifr@aditraining.id");
+  const gitUsername = labUsesGit && gitUserInput ? gitUserInput.value.trim() : "";
+  const gitEmail = labUsesGit && gitEmailInput ? gitEmailInput.value.trim() : "";
 
   try {
     const res = await fetch(`${API_BASE}/labs/${labId}/parse-md`, {
@@ -925,8 +948,8 @@ async function previewParsedLabSteps() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         lab_md: appState.currentLabMd,
-        git_username: gitUsername,
-        git_email: gitEmail
+        git_username: labUsesGit ? (gitUsername || null) : null,
+        git_email: labUsesGit ? (gitEmail || null) : null
       })
     });
     const data = await res.json();
@@ -985,19 +1008,29 @@ async function executeGradingRun() {
 
   const gitUserInput = document.getElementById("runGitUserInput");
   const gitEmailInput = document.getElementById("runGitEmailInput");
-  const gitUsername = gitUserInput ? gitUserInput.value.trim() : (localStorage.getItem("gitUsername") || "afifr");
-  const gitEmail = gitEmailInput ? gitEmailInput.value.trim() : (localStorage.getItem("gitEmail") || "afifr@aditraining.id");
+  const gitUsername = gitUserInput ? gitUserInput.value.trim() : "";
+  const gitEmail = gitEmailInput ? gitEmailInput.value.trim() : "";
 
   if (gitUsername) localStorage.setItem("gitUsername", gitUsername);
   if (gitEmail) localStorage.setItem("gitEmail", gitEmail);
+
+  // Check if current lab md contains git config steps
+  const labUsesGit = Boolean(appState.currentLabMd && (
+    appState.currentLabMd.includes("git config") ||
+    appState.currentLabMd.includes("akun git") ||
+    appState.currentLabMd.includes("user.name")
+  ));
 
   const varsObj = {};
   if (rawVars.includes("=")) {
     const parts = rawVars.split("=");
     varsObj[parts[0].trim()] = parts[1].trim();
   }
-  if (gitUsername) varsObj["GIT_USERNAME"] = gitUsername;
-  if (gitEmail) varsObj["GIT_EMAIL"] = gitEmail;
+  // Only inject git variables if this lab actually contains git config steps
+  if (labUsesGit) {
+    if (gitUsername) varsObj["GIT_USERNAME"] = gitUsername;
+    if (gitEmail) varsObj["GIT_EMAIL"] = gitEmail;
+  }
 
   const logBox = document.getElementById("runProgressBox");
   const liveBadge = document.getElementById("runLiveBadge");
@@ -1043,8 +1076,8 @@ async function executeGradingRun() {
         mode: mode,
         grade_slug: gradeSlug,
         workflow: workflow,
-        git_username: gitUsername,
-        git_email: gitEmail,
+        git_username: labUsesGit ? (gitUsername || null) : null,
+        git_email: labUsesGit ? (gitEmail || null) : null,
         vars: varsObj,
         follow_lab_md: followLabMd,
         custom_lab_md: appState.currentLabMd,

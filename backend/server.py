@@ -722,10 +722,6 @@ class AppRequestHandler(BaseHTTPRequestHandler):
             user_vars = body.get("vars", {})
             git_username = body.get("git_username")
             git_email = body.get("git_email")
-            if git_username:
-                user_vars["GIT_USERNAME"] = git_username
-            if git_email:
-                user_vars["GIT_EMAIL"] = git_email
             follow_lab_md = body.get("follow_lab_md", (state == "solved"))
             custom_lab_md = body.get("custom_lab_md")
             grade_slug = body.get("grade_slug")
@@ -807,6 +803,18 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                 else:
                     c.execute("SELECT * FROM grade_cases WHERE lab_id = ? ORDER BY case_index", (lab["id"],))
                     lab_dict["grade"] = [dict(case) for case in c.fetchall()]
+
+            # Only include git config global variables if the lab markdown actually contains git config steps
+            active_md = lab_dict.get("lab_md") or ""
+            has_git_step = bool(active_md and ("git config" in active_md or "akun git" in active_md or "user.name" in active_md))
+            if has_git_step:
+                if git_username:
+                    user_vars["GIT_USERNAME"] = git_username
+                if git_email:
+                    user_vars["GIT_EMAIL"] = git_email
+            else:
+                user_vars.pop("GIT_USERNAME", None)
+                user_vars.pop("GIT_EMAIL", None)
 
             run_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{lab['export_id']}-{state}"
             now = datetime.now(timezone.utc).isoformat()
