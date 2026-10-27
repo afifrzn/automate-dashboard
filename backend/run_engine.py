@@ -523,15 +523,26 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
             "name": name,
             "verdict": verdict,
             "exit_code": exit_code,
-            "duration_ms": duration_ms
+            "duration_ms": duration_ms,
+            "stdout": clean_out,
+            "stderr": redacted_stderr,
+            "expect": expect,
+            "actual": clean_out,
+            "log_cmd": log_cmd,
+            "log_out": redacted_log
         })
+
+    passed_case_indices = [r["case_index"] for r in case_results if r["verdict"] == "PASS"]
+    failed_case_indices = [r["case_index"] for r in case_results if r["verdict"] != "PASS"]
 
     manual_verdict = "PASS" if (passed_count == total_count and total_count > 0) else ("FAIL" if total_count > 0 else "PASS")
     if workflow == "4step":
         emit_event("manual_grade_complete", {
             "score_passed": passed_count,
             "score_total": total_count,
-            "verdict": manual_verdict
+            "verdict": manual_verdict,
+            "passed_cases": passed_case_indices,
+            "failed_cases": failed_case_indices
         })
 
     # ==================== STAGE 4 (or Standard): Grade using nusactl grade ====================
@@ -615,9 +626,17 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
             "workflow": "4step",
             "stage_1_baseline": {"verdict": pre_verdict},
             "stage_2_instructions": {"steps_count": len(steps) if (should_follow and 'steps' in locals()) else 0},
-            "stage_3_manual": {"score_passed": passed_count, "score_total": total_count, "verdict": manual_verdict},
+            "stage_3_manual": {
+                "score_passed": passed_count,
+                "score_total": total_count,
+                "verdict": manual_verdict,
+                "passed_cases": passed_case_indices,
+                "failed_cases": failed_case_indices
+            },
             "stage_4_tool": {"slug": target_grade_slug, "verdict": tool_verdict, "exit_code": tool_exit},
-            "final_verdict": final_pipeline_verdict
+            "final_verdict": final_pipeline_verdict,
+            "passed_cases": passed_case_indices,
+            "failed_cases": failed_case_indices
         })
 
     # Overall lab verdict
@@ -678,7 +697,10 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
         "lab_verdict": lab_verdict,
         "score_passed": passed_count,
         "score_total": total_count,
-        "validation": val_reason
+        "validation": val_reason,
+        "passed_cases": passed_case_indices,
+        "failed_cases": failed_case_indices,
+        "case_results": case_results
     })
 
     return {

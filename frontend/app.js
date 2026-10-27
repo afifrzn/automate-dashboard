@@ -618,8 +618,57 @@ async function renderRuns() {
           <span id="runLiveBadge" class="badge badge-skip">Idle</span>
         </div>
 
-        <div id="runProgressBox" style="background-color: var(--bg-code); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px; height: 580px; overflow-y: auto; font-family: var(--font-mono); font-size: 12px; color: #f8fafc; line-height: 1.5;">
+        <div id="runProgressBox" style="background-color: var(--bg-code); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px; height: 380px; overflow-y: auto; font-family: var(--font-mono); font-size: 12px; color: #f8fafc; line-height: 1.5;">
           <div style="color: var(--text-muted);">Select options on the left and click "Start Grading Execution" to watch live results stream in real-time...</div>
+        </div>
+
+        <!-- Live SSE Case Breakdown: Output, Pass Cases, Fail Cases -->
+        <div id="liveResultsPanel" style="margin-top: 14px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <strong style="font-size: 13px; color: var(--text-primary);">📊 Test Cases Results Breakdown</strong>
+              <span id="liveCaseStatsSummary" class="badge badge-skip">0 / 0 Cases</span>
+            </div>
+            <div id="liveOverallPill" style="font-size: 11px; font-weight: 600; color: var(--text-muted);">
+              Awaiting execution...
+            </div>
+          </div>
+
+          <!-- Pass / Fail Badges Row -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+            <!-- Passed Cases Box -->
+            <div style="background: rgba(34, 197, 94, 0.08); border: 1px solid #22c55e; border-radius: 6px; padding: 10px 12px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span style="font-size: 12px; font-weight: 700; color: #4ade80;">✅ Case Number That Pass:</span>
+                <span id="passedCountBadge" class="badge badge-pass" style="font-size: 11px;">0</span>
+              </div>
+              <div id="passedCasesPills" style="display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; align-items: center;">
+                <span style="font-size: 11px; color: var(--text-muted);">None yet</span>
+              </div>
+            </div>
+
+            <!-- Failed Cases Box -->
+            <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid #ef4444; border-radius: 6px; padding: 10px 12px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span style="font-size: 12px; font-weight: 700; color: #f87171;">❌ Case Number That Failed:</span>
+                <span id="failedCountBadge" class="badge badge-fail" style="font-size: 11px;">0</span>
+              </div>
+              <div id="failedCasesPills" style="display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; align-items: center;">
+                <span style="font-size: 11px; color: var(--text-muted);">None yet</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Detailed Case Output Inspection Container -->
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase;">Detailed Case Outputs & Inspection:</span>
+              <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="toggleLiveCaseDetails()" id="liveDetailsToggleBtn">Hide Details</button>
+            </div>
+            <div id="liveCasesTable" style="max-height: 220px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-code);">
+              <div style="padding: 12px; color: var(--text-muted); font-size: 11px; text-align: center;">Case outputs and command diagnostics will appear here live...</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -728,6 +777,15 @@ async function previewParsedLabSteps() {
   }
 }
 
+function toggleLiveCaseDetails() {
+  const table = document.getElementById("liveCasesTable");
+  const btn = document.getElementById("liveDetailsToggleBtn");
+  if (!table) return;
+  const isHidden = table.style.display === "none";
+  table.style.display = isHidden ? "block" : "none";
+  if (btn) btn.textContent = isHidden ? "Hide Details" : "Show Details";
+}
+
 async function runDirectFromMd() {
   const editorInput = document.getElementById("labMdEditorInput");
   const content = editorInput && editorInput.value.trim() ? editorInput.value.trim() : appState.currentLabMd;
@@ -766,6 +824,28 @@ async function executeGradingRun() {
   const logBox = document.getElementById("runProgressBox");
   const liveBadge = document.getElementById("runLiveBadge");
 
+  // Live Case Breakdown UI elements
+  const passedCases = [];
+  const failedCases = [];
+  const passedCountEl = document.getElementById("passedCountBadge");
+  const failedCountEl = document.getElementById("failedCountBadge");
+  const passedPillsEl = document.getElementById("passedCasesPills");
+  const failedPillsEl = document.getElementById("failedCasesPills");
+  const liveTableEl = document.getElementById("liveCasesTable");
+  const statsSummaryEl = document.getElementById("liveCaseStatsSummary");
+  const overallPillEl = document.getElementById("liveOverallPill");
+
+  if (passedCountEl) passedCountEl.textContent = "0";
+  if (failedCountEl) failedCountEl.textContent = "0";
+  if (passedPillsEl) passedPillsEl.innerHTML = '<span style="font-size: 11px; color: var(--text-muted);">None yet</span>';
+  if (failedPillsEl) failedPillsEl.innerHTML = '<span style="font-size: 11px; color: var(--text-muted);">None yet</span>';
+  if (liveTableEl) liveTableEl.innerHTML = '<div style="padding: 12px; color: var(--text-muted); font-size: 11px; text-align: center;">Awaiting test case execution...</div>';
+  if (statsSummaryEl) {
+    statsSummaryEl.className = "badge badge-skip";
+    statsSummaryEl.textContent = "0 / 0 Cases";
+  }
+  if (overallPillEl) overallPillEl.textContent = "Connecting...";
+
   liveBadge.className = "badge badge-ai";
   liveBadge.textContent = "Connecting...";
   logBox.innerHTML = `[${new Date().toISOString()}] Initializing ${workflow === '4step' ? '4-Step Automated Workflow' : 'Execution Run'}...\n`;
@@ -796,6 +876,7 @@ async function executeGradingRun() {
     logBox.innerHTML += `[${new Date().toISOString()}] Run registered: ${runId}\n[${new Date().toISOString()}] Subscribing to Server-Sent Events (SSE)...\n`;
     liveBadge.className = "badge badge-ai";
     liveBadge.textContent = "RUNNING";
+    if (overallPillEl) overallPillEl.textContent = "Running...";
 
     // Setup SSE
     if (appState.activeRunEventSource) {
@@ -905,9 +986,56 @@ async function executeGradingRun() {
 
     sse.addEventListener("case_complete", (e) => {
       const p = JSON.parse(e.data);
-      const verdictColor = p.verdict === 'PASS' ? '#4ade80' : (p.verdict === 'ERROR' ? '#fbbf24' : '#f87171');
+      const isPass = p.verdict === 'PASS';
+      const verdictColor = isPass ? '#4ade80' : (p.verdict === 'ERROR' ? '#fbbf24' : '#f87171');
       logBox.innerHTML += `  Verdict: <span style="color: ${verdictColor}; font-weight: 700;">[${p.verdict}]</span> (${p.duration_ms}ms)\n`;
+      if (p.stdout) {
+        logBox.innerHTML += `   <span style="color: #94a3b8; font-size: 11px;">Output: ${escapeHtml(p.stdout)}</span>\n`;
+      }
       logBox.scrollTop = logBox.scrollHeight;
+
+      // Update Case Number that Pass / Fail
+      if (isPass) {
+        passedCases.push(p.case_index);
+        if (passedCountEl) passedCountEl.textContent = passedCases.length;
+        if (passedPillsEl) {
+          if (passedCases.length === 1) passedPillsEl.innerHTML = '';
+          passedPillsEl.innerHTML += `<span class="badge badge-pass" style="font-size: 11px; font-weight: 700;" title="${escapeHtml(p.name)}">Case ${p.case_index}</span>`;
+        }
+      } else {
+        failedCases.push(p.case_index);
+        if (failedCountEl) failedCountEl.textContent = failedCases.length;
+        if (failedPillsEl) {
+          if (failedCases.length === 1) failedPillsEl.innerHTML = '';
+          failedPillsEl.innerHTML += `<span class="badge badge-fail" style="font-size: 11px; font-weight: 700;" title="${escapeHtml(p.name)}">Case ${p.case_index}</span>`;
+        }
+      }
+
+      if (statsSummaryEl) {
+        const totalDone = passedCases.length + failedCases.length;
+        statsSummaryEl.className = failedCases.length === 0 ? "badge badge-pass" : "badge badge-fail";
+        statsSummaryEl.textContent = `${passedCases.length} / ${totalDone} Passed`;
+      }
+
+      // Add to detailed Case Output Inspection table
+      if (liveTableEl) {
+        if (passedCases.length + failedCases.length === 1) liveTableEl.innerHTML = '';
+        liveTableEl.innerHTML += `
+          <div style="border-bottom: 1px solid var(--border-color); padding: 8px 12px; font-family: var(--font-mono); font-size: 11px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <span style="font-weight: 700; color: #f8fafc;">Case ${p.case_index}: ${escapeHtml(p.name)}</span>
+              <span class="badge ${isPass ? 'badge-pass' : 'badge-fail'}">${p.verdict} (${p.duration_ms}ms)</span>
+            </div>
+            <div style="color: #94a3b8; display: grid; gap: 2px;">
+              <div><strong style="color: #cbd5e1;">Exit Code:</strong> ${p.exit_code} | <strong style="color: #cbd5e1;">Expect:</strong> <code style="color: #38bdf8;">${escapeHtml(p.expect || '')}</code></div>
+              <div><strong style="color: #cbd5e1;">Actual Output:</strong> <code style="color: ${isPass ? '#4ade80' : '#f87171'};">${escapeHtml(p.stdout || '(empty)')}</code></div>
+              ${p.stderr ? `<div style="color: #f87171;"><strong>Stderr:</strong> ${escapeHtml(p.stderr)}</div>` : ''}
+              ${p.log_out ? `<div style="color: #60a5fa; font-size: 10px;"><strong>Log Inspection:</strong> ${escapeHtml(p.log_out)}</div>` : ''}
+            </div>
+          </div>
+        `;
+        liveTableEl.scrollTop = liveTableEl.scrollHeight;
+      }
     });
 
     sse.addEventListener("pipeline_complete", (e) => {
@@ -932,8 +1060,16 @@ async function executeGradingRun() {
       const p = JSON.parse(e.data);
       liveBadge.className = p.lab_verdict === 'PASS' ? 'badge badge-pass' : 'badge badge-fail';
       liveBadge.textContent = p.lab_verdict;
-      logBox.innerHTML += `\n========================================\nOVERALL VERDICT: ${p.lab_verdict} (Score: ${p.score_passed}/${p.score_total})\nValidation: ${p.validation}\n========================================\n`;
+
+      const pList = (p.passed_cases && p.passed_cases.length > 0) ? p.passed_cases.map(c => `Case ${c}`).join(", ") : (passedCases.length > 0 ? passedCases.map(c => `Case ${c}`).join(", ") : "None");
+      const fList = (p.failed_cases && p.failed_cases.length > 0) ? p.failed_cases.map(c => `Case ${c}`).join(", ") : (failedCases.length > 0 ? failedCases.map(c => `Case ${c}`).join(", ") : "None");
+
+      logBox.innerHTML += `\n========================================\nOVERALL VERDICT: ${p.lab_verdict} (Score: ${p.score_passed}/${p.score_total})\nValidation: ${p.validation}\n----------------------------------------\n📋 CASE BREAKDOWN:\n  ✅ Cases That Passed: ${pList}\n  ❌ Cases That Failed: ${fList}\n========================================\n`;
       logBox.scrollTop = logBox.scrollHeight;
+
+      if (overallPillEl) {
+        overallPillEl.innerHTML = `<span class="badge ${p.lab_verdict === 'PASS' ? 'badge-pass' : 'badge-fail'}" style="font-size: 12px; font-weight: 700;">Final: ${p.lab_verdict} (${p.score_passed}/${p.score_total})</span>`;
+      }
       sse.close();
     });
   } catch (e) {
