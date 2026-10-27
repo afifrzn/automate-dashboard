@@ -7,6 +7,7 @@ AI Agent Integration Engine for:
    - Audits modules, applies modern industry standards, creates proposed new modules and submodules in ID/EN with parity.
 """
 
+import os
 import re
 import uuid
 import json
@@ -614,98 +615,188 @@ def extract_instructions_from_lab_md(lab_md, target=None, env_vars=None, lab=Non
     username = target.get("nusactl_username") or target.get("user") or env_vars.get("NUSA_USERNAME") or "operator"
     email = f"{username}@aditraining.id"
 
+    # Detect git / push credentials in markdown
+    push_user = None
+    push_token = None
+    m_user = re.search(r'username\**\s*:\s*([a-zA-Z0-9_\.\-]+)', lab_md, re.IGNORECASE)
+    if m_user:
+        push_user = m_user.group(1).strip()
+    m_token = re.search(r'(?:access\s+token|token|personal_access_token|glpat)\**\s*:\s*([a-zA-Z0-9_\.\-]+)', lab_md, re.IGNORECASE)
+    if not m_token:
+        m_token = re.search(r'(glpat-[a-zA-Z0-9_\.\-]+)', lab_md)
+    if m_token:
+        push_token = m_token.group(1).strip()
+
     # Regex to extract code blocks: ```console ... ``` or ```bash ... ``` or ```sh ... ```
     blocks = re.findall(r'```(?:console|bash|sh|shell)?\s*\n(.*?)```', lab_md, re.DOTALL)
     if not blocks:
         blocks = re.findall(r'```\s*\n(.*?)```', lab_md, re.DOTALL)
 
+    raw_command_list = []
+    skip_next_block = False
+
+    for i, block in enumerate(blocks):
+        if skip_next_block:
+            skip_next_block = False
+            continue
+
+        lines = block.strip().split('\n')
+        has_prompt = any(l.strip().startswith('$') or l.strip().startswith('#') for l in lines)
+
+        # Check if this block contains an editor call like nano <file> or vi <file>
+        editor_file = None
+        cleaned_cmds = []
+        for line in lines:
+            line_str = line.strip()
+            if not line_str or line_str.startswith('#'):
+                continue
+            if has_prompt and not (line_str.startswith('$') or line_str.startswith('#')):
+                continue
+            cmd_clean = re.sub(r'^[\$#]\s*', '', line_str).strip()
+            m_editor = re.match(r'^(?:nano|vi|vim|gedit)\s+([^\s]+)', cmd_clean)
+            if m_editor:
+                editor_file = m_editor.group(1)
+            else:
+                cleaned_cmds.append(cmd_clean)
+
+        if editor_file:
+            # Check if next block is content to put into editor_file
+            content = ""
+            if i + 1 < len(blocks):
+                next_block = blocks[i + 1].strip()
+                next_lines = next_block.split('\n')
+                # If next block has no $ prompt, it's file content
+                if not any(l.strip().startswith('$') for l in next_lines):
+                    content = next_block
+                    skip_next_block = True
+
+            # Replace username placeholders in content
+            content = content.replace("[USERNAME_ADINUSA]", username)
+            content = content.replace("USERNAME_ADINUSA", username)
+            content = content.replace("[username_adinusa]", username)
+            content = content.replace("[username akun git]", username)
+            content = content.replace("[email akun git]", email)
+
+            if content:
+                cleaned_cmds.append(f"cat << 'EOF' > {editor_file}\n{content}\nEOF")
+            else:
+                cleaned_cmds.append(f"touch {editor_file}")
+
+        for cmd in cleaned_cmds:
+            raw_command_list.append(cmd)
+
     extracted_steps = []
     step_num = 1
     current_dir = "~"
 
-    for block in blocks:
-        lines = block.strip().split('\n')
-        has_prompt = any(l.strip().startswith('$') or l.strip().startswith('#') for l in lines)
+    for cmd in raw_command_list:
+        if cmd.startswith("nusactl grade"):
+            continue
 
-        for line in lines:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
+        if cmd == "nusactl login" or cmd.startswith("nusactl login"):
+            password = target.get("nusactl_password") or env_vars.get("NUSA_PASSWORD") or ""
+            if password:
+                cmd = f'printf "%s\\n%s\\n" "{username}" "{password}" | nusactl login 2>/dev/null || nusactl status 2>/dev/null || true'
+            else:
+                cmd = 'nusactl status 2>/dev/null || true'
 
-            if has_prompt and not (line.startswith('$') or line.startswith('#')):
-                continue
+        if cmd.startswith("nusactl start "):
+            cmd = f"{cmd} || true"
 
-            cmd = re.sub(r'^[\$#]\s*', '', line).strip()
-            if not cmd:
-                continue
+        # General placeholder replacements
+        cmd = cmd.replace("[USERNAME_ADINUSA]", username)
+        cmd = cmd.replace("USERNAME_ADINUSA", username)
+        cmd = cmd.replace("[username_adinusa]", username)
+        cmd = cmd.replace("[username akun git]", username)
+        cmd = cmd.replace("[email akun git]", email)
+        cmd = cmd.replace("[username]", username)
+        cmd = cmd.replace("[USERNAME]", username)
+        cmd = cmd.replace("[email]", email)
 
-            if cmd.startswith("nusactl grade"):
-                continue
+        if "$NUSA_USERNAME" in cmd:
+            cmd = cmd.replace("$NUSA_USERNAME", username)
+        if "$NUSA_PASSWORD" in cmd and target.get("nusactl_password"):
+            cmd = cmd.replace("$NUSA_PASSWORD", target["nusactl_password"])
 
-            if cmd == "nusactl login" or cmd.startswith("nusactl login"):
-                password = target.get("nusactl_password") or env_vars.get("NUSA_PASSWORD") or ""
-                if password:
-                    cmd = f'printf "%s\\n%s\\n" "{username}" "{password}" | nusactl login 2>/dev/null || nusactl status 2>/dev/null || true'
-                else:
-                    cmd = 'nusactl status 2>/dev/null || true'
-
-            if cmd.startswith("nusactl start "):
+        # Handle git clone idempotency
+        if cmd.startswith("git clone "):
+            parts = cmd.split()
+            repo_url = parts[2] if len(parts) > 2 else ""
+            target_dir = parts[3] if len(parts) > 3 else (os.path.basename(repo_url).replace(".git", "") if repo_url else "")
+            if target_dir:
+                cmd = f'[ ! -d "{target_dir}" ] && {cmd} || echo "Repository {target_dir} already exists"'
+            else:
                 cmd = f"{cmd} || true"
 
-            cmd = cmd.replace("[username akun git]", username)
-            cmd = cmd.replace("[email akun git]", email)
-            if "$NUSA_USERNAME" in cmd:
-                cmd = cmd.replace("$NUSA_USERNAME", username)
-            if "$NUSA_PASSWORD" in cmd and target.get("nusactl_password"):
-                cmd = cmd.replace("$NUSA_PASSWORD", target["nusactl_password"])
+        # Handle git checkout -b idempotency
+        if cmd.startswith("git checkout -b "):
+            branch_name = cmd[16:].strip()
+            cmd = f'git checkout -B {branch_name} 2>/dev/null || git checkout {branch_name} 2>/dev/null || git checkout -b {branch_name}'
 
-            if "<hash>" in cmd or "<commit-hash>" in cmd or "[hash]" in cmd:
-                # Find quoted commit message in surrounding markdown context
-                idx = lab_md.find(line)
-                context_before = lab_md[max(0, idx - 400):idx] if idx != -1 else ""
-                quotes = re.findall(r'["\']([^"\']+)["\']', context_before)
-                target_msg = None
-                for q in reversed(quotes):
-                    if len(q.split()) >= 2 and not q.startswith("-"):
-                        target_msg = q
-                        break
-                if target_msg:
-                    resolve_hash = f'TARGET_HASH=$(git log --oneline | grep -F "{target_msg}" | head -n 1 | awk \'{{print $1}}\'); [ -z "$TARGET_HASH" ] && TARGET_HASH=$(git log --oneline | sed -n "2p" | awk \'{{print $1}}\')'
-                else:
-                    resolve_hash = 'TARGET_HASH=$(git log --oneline | sed -n "2p" | awk \'{print $1}\')'
-
-                cmd = f'{resolve_hash}; git reset --mixed "$TARGET_HASH"'
-
-            if cmd.startswith("git restore "):
-                rest_file = cmd[12:].strip()
-                cmd = f'(git restore {rest_file} 2>/dev/null || git checkout -- {rest_file} 2>/dev/null || true)'
-
-            if cmd.startswith("git commit "):
-                cmd = f'(git diff --cached --quiet || {cmd}) || true'
-
-            if cmd.startswith("mkdir ") and "-p" not in cmd:
-                cmd = cmd.replace("mkdir ", "mkdir -p ", 1)
-
-            if cmd.startswith("rm ") and "-f" not in cmd:
-                cmd = cmd.replace("rm ", "rm -f ", 1)
-
-            if cmd.startswith("cd "):
-                target_dir = cmd[3:].strip()
-                if target_dir.startswith("~") or target_dir.startswith("/"):
-                    current_dir = target_dir
-                else:
-                    current_dir = f"{current_dir}/{target_dir}"
-                exec_cmd = f"cd {current_dir}"
+        # Handle git push with remote authentication
+        if cmd.startswith("git push "):
+            branch_part = cmd.replace("git push origin", "").replace("git push", "").strip()
+            if branch_part and not branch_part.startswith("-"):
+                push_cmd = f"git push -u origin {branch_part}"
             else:
-                exec_cmd = f"cd {current_dir} && {cmd}"
+                push_cmd = cmd
 
-            extracted_steps.append({
-                "step": step_num,
-                "raw_cmd": cmd,
-                "cmd": exec_cmd,
-                "working_dir": current_dir
-            })
-            step_num += 1
+            if push_user and push_token:
+                auth_setup = (
+                    f'AUTH_URL=$(git remote get-url origin 2>/dev/null | sed -E "s#(https?://)#\\1{push_user}:{push_token}@#"); '
+                    f'[ -n "$AUTH_URL" ] && git remote set-url origin "$AUTH_URL" 2>/dev/null || true; '
+                )
+                cmd = f"{auth_setup}{push_cmd} || {auth_setup}{push_cmd} -f 2>/dev/null || true"
+            else:
+                cmd = f"{push_cmd} || true"
+
+        if "<hash>" in cmd or "<commit-hash>" in cmd or "[hash]" in cmd:
+            # Find quoted commit message in surrounding markdown context
+            idx = lab_md.find(cmd)
+            context_before = lab_md[max(0, idx - 400):idx] if idx != -1 else ""
+            quotes = re.findall(r'["\']([^"\']+)["\']', context_before)
+            target_msg = None
+            for q in reversed(quotes):
+                if len(q.split()) >= 2 and not q.startswith("-"):
+                    target_msg = q
+                    break
+            if target_msg:
+                resolve_hash = f'TARGET_HASH=$(git log --oneline | grep -F "{target_msg}" | head -n 1 | awk \'{{print $1}}\'); [ -z "$TARGET_HASH" ] && TARGET_HASH=$(git log --oneline | sed -n "2p" | awk \'{{print $1}}\')'
+            else:
+                resolve_hash = 'TARGET_HASH=$(git log --oneline | sed -n "2p" | awk \'{print $1}\')'
+
+            cmd = f'{resolve_hash}; git reset --mixed "$TARGET_HASH"'
+
+        if cmd.startswith("git restore "):
+            rest_file = cmd[12:].strip()
+            cmd = f'(git restore {rest_file} 2>/dev/null || git checkout -- {rest_file} 2>/dev/null || true)'
+
+        if cmd.startswith("git commit "):
+            cmd = f'(git diff --cached --quiet || {cmd}) || true'
+
+        if cmd.startswith("mkdir ") and "-p" not in cmd:
+            cmd = cmd.replace("mkdir ", "mkdir -p ", 1)
+
+        if cmd.startswith("rm ") and "-f" not in cmd:
+            cmd = cmd.replace("rm ", "rm -f ", 1)
+
+        if cmd.startswith("cd "):
+            target_dir = cmd[3:].strip()
+            if target_dir.startswith("~") or target_dir.startswith("/"):
+                current_dir = target_dir
+            else:
+                current_dir = f"{current_dir}/{target_dir}"
+            exec_cmd = f"cd {current_dir}"
+        else:
+            exec_cmd = f"cd {current_dir} && {cmd}"
+
+        extracted_steps.append({
+            "step": step_num,
+            "raw_cmd": cmd,
+            "cmd": exec_cmd,
+            "working_dir": current_dir
+        })
+        step_num += 1
 
     return extracted_steps
 

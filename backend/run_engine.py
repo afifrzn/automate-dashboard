@@ -342,6 +342,33 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
     debug_logs = []
     cross_checks = []
 
+    # If cases are mismatched (e.g. legacy merge-conflict for glpc-005-1 dasar-git-2), align them
+    target_username = target.get("nusactl_username") or target.get("user") or effective_vars.get("NUSA_USERNAME") or "afifr"
+    if (target_grade_slug == "glpc-005-1" or "dasar-git-2" in str(lab_md or "")) and any("merge-conflict" in str(c.get("cmd") or "") for c in cases):
+        cases = [
+            {
+                "case_index": 1,
+                "name": "case 1 - Memeriksa branch yang sudah dibuat di remote repository",
+                "cmd": f'cd ~/dasar-git-2 && (git branch -a | grep -E "{target_username}" || git branch -r | grep -E "{target_username}")',
+                "expect": target_username,
+                "log_cmd": 'echo "Remote branches: $(cd ~/dasar-git-2 && git branch -a 2>/dev/null | tr \'\\n\' \' \')"'
+            },
+            {
+                "case_index": 2,
+                "name": "case 2 - Memeriksa isi file README.md pada branch username",
+                "cmd": f'cd ~/dasar-git-2 && (git checkout {target_username} 2>/dev/null || true); cat README.md | grep -Eo "Baris ini dibuat oleh"',
+                "expect": "Baris ini dibuat oleh",
+                "log_cmd": 'echo "README: $(cd ~/dasar-git-2 && head -n 3 README.md 2>/dev/null)"'
+            },
+            {
+                "case_index": 3,
+                "name": "case 3 - Memeriksa status git terbaru setelah push branch",
+                "cmd": 'cd ~/dasar-git-2 && (git status | grep -Eo "nothing to commit" || echo "dirty")',
+                "expect": "nothing to commit",
+                "log_cmd": 'echo "Status: $(cd ~/dasar-git-2 && git status --short 2>/dev/null)"'
+            }
+        ]
+
     # ==================== Execute nusactl grade <slug> ====================
     tool_grade_cmd = f"nusactl grade {target_grade_slug}"
     emit_event("tool_grade_start", {
@@ -372,13 +399,34 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
             tool_verdict = "FAIL"
     else:
         tool_exit, tool_out, tool_err = execute_remote_ssh(target, tool_grade_cmd, env_vars=effective_vars)
-        clean_tool_out = (tool_out or "").lower()
-        if tool_exit == 0 or "100%" in clean_tool_out or "all checks passed" in clean_tool_out or ("passed" in clean_tool_out and "failed" not in clean_tool_out):
+        clean_tool_out = re.sub(r'\x1b\[[0-9;]*m', '', tool_out or "").lower()
+        has_fail = (
+            "oh no" in clean_tool_out or
+            "didn't complete" in clean_tool_out or
+            "didnt complete" in clean_tool_out or
+            "score -> 0" in clean_tool_out or
+            "score: 0" in clean_tool_out or
+            "[x]" in clean_tool_out or
+            "fail" in clean_tool_out or
+            tool_exit != 0
+        )
+        has_pass = (
+            "100%" in clean_tool_out or
+            "all checks passed" in clean_tool_out or
+            "score -> 100" in clean_tool_out or
+            "score: 100" in clean_tool_out or
+            "congratulation" in clean_tool_out or
+            "selamat" in clean_tool_out or
+            (tool_exit == 0 and "passed" in clean_tool_out and not has_fail)
+        )
+        if has_pass and not has_fail:
             tool_verdict = "PASS"
-        elif "failed" in clean_tool_out or "fail" in clean_tool_out or tool_exit != 0:
+        elif has_fail:
             tool_verdict = "FAIL"
+        elif tool_exit == 0:
+            tool_verdict = "PASS"
         else:
-            tool_verdict = "ERROR"
+            tool_verdict = "FAIL"
 
     emit_event("tool_grade_complete", {
         "slug": target_grade_slug,
