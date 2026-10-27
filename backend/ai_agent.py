@@ -774,11 +774,16 @@ def extract_instructions_from_lab_md(lab_md, target=None, env_vars=None, lab=Non
         if cmd.startswith("git commit "):
             cmd = f'(git diff --cached --quiet || {cmd}) || true'
 
-        if cmd.startswith("mkdir ") and "-p" not in cmd:
-            cmd = cmd.replace("mkdir ", "mkdir -p ", 1)
+        if cmd.startswith("mkdir "):
+            d_name = re.sub(r"^mkdir\s+(-p\s+)?", "", cmd).strip()
+            # Clean directory if at root/home so repeated runs start fresh and don't duplicate appended file lines
+            if d_name and not d_name.startswith("/") and not d_name.startswith("..") and current_dir in ("~", "$HOME", "/home/student"):
+                cmd = f"rm -rf {d_name} && mkdir -p {d_name}"
+            elif "-p" not in cmd:
+                cmd = cmd.replace("mkdir ", "mkdir -p ", 1)
 
-        if cmd.startswith("rm ") and "-f" not in cmd:
-            cmd = cmd.replace("rm ", "rm -f ", 1)
+        if re.match(r"^rm\s+", cmd) and not re.search(r"-[a-zA-Z]*f", cmd):
+            cmd = re.sub(r"^rm\s+", "rm -f ", cmd)
 
         if cmd.startswith("cd "):
             target_dir = cmd[3:].strip()
