@@ -1,33 +1,35 @@
-/* Dashboard App Baseline CSS Design System
-   Modern, information-dense, dark/light theme, high contrast WCAG AA compliant. */
+/* ==========================================================================
+   Dashboard App — Metronic 9 Tailwind CSS Integration
+   Theme: Modern, Information-Dense, Responsive, Dark/Light Mode
+   ========================================================================== */
 
-:root {
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+:root, [data-theme="dark"], html.dark {
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 
-  /* Dark Theme Defaults */
-  --bg-primary: #0f172a;
-  --bg-secondary: #1e293b;
-  --bg-tertiary: #334155;
-  --bg-code: #0b1120;
+  /* Metronic Dark Theme Colors */
+  --bg-primary: #0f1217;
+  --bg-secondary: #141820;
+  --bg-tertiary: #1b212c;
+  --bg-code: #0b0e13;
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
   --text-muted: #64748b;
-  --border-color: #334155;
-  --accent-blue: #38bdf8;
-  --accent-hover: #0284c7;
+  --border-color: #242c3b;
+  --accent-blue: #0284c7;
+  --accent-hover: #0369a1;
 
   /* Status Colors */
-  --pass-bg: rgba(34, 197, 94, 0.15);
+  --pass-bg: rgba(34, 197, 94, 0.12);
   --pass-text: #4ade80;
   --pass-border: #22c55e;
-  --fail-bg: rgba(239, 68, 68, 0.15);
+  --fail-bg: rgba(239, 68, 68, 0.12);
   --fail-text: #f87171;
   --fail-border: #ef4444;
-  --error-bg: rgba(245, 158, 11, 0.15);
+  --error-bg: rgba(245, 158, 11, 0.12);
   --error-text: #fbbf24;
   --error-border: #f59e0b;
-  --skip-bg: rgba(148, 163, 184, 0.15);
+  --skip-bg: rgba(148, 163, 184, 0.12);
   --skip-text: #cbd5e1;
   --skip-border: #64748b;
 
@@ -35,15 +37,19 @@
   --badge-ai-text: #ffffff;
 }
 
-[data-theme="light"] {
+[data-theme="light"], html:not(.dark) {
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  /* Metronic Light Theme Colors */
   --bg-primary: #f8fafc;
   --bg-secondary: #ffffff;
   --bg-tertiary: #f1f5f9;
-  --bg-code: #e2e8f0;
+  --bg-code: #f1f5f9;
   --text-primary: #0f172a;
   --text-secondary: #475569;
   --text-muted: #94a3b8;
-  --border-color: #cbd5e1;
+  --border-color: #e2e8f0;
   --accent-blue: #0284c7;
   --accent-hover: #0369a1;
 
@@ -63,8 +69,6 @@
 
 * {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0;
 }
 
 body {
@@ -72,136 +76,75 @@ body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.5;
-  font-size: 14px;
+  font-size: 13px;
   overflow-x: hidden;
 }
 
-/* Header & Navigation */
-header {
-  background-color: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
-  padding: 10px 20px;
-  position: sticky;
-  top: 0;
-  z-index: 50;
-}
-
-.header-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 15px;
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.brand-badge {
-  background: linear-gradient(135deg, #0284c7, #38bdf8);
-  color: #fff;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  text-transform: uppercase;
-}
-
-.controls-group {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-select, input, textarea {
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 6px 10px;
-  font-size: 13px;
-  outline: none;
-  font-family: inherit;
-}
-
-select:focus, input:focus, textarea:focus {
-  border-color: var(--accent-blue);
-}
-
-/* Environment Warning Banner */
-.env-banner {
-  background-color: #ef4444;
-  color: #ffffff;
-  padding: 6px 15px;
-  font-size: 12px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.env-banner.safe {
-  background-color: var(--bg-tertiary);
-  color: var(--text-secondary);
-}
-
-/* Nav Tabs */
-nav.nav-bar {
-  display: flex;
-  gap: 4px;
-  margin-top: 10px;
-  overflow-x: auto;
-  border-bottom: 1px solid var(--border-color);
+/* Sidebar & Navigation Styling */
+.sidebar {
+  width: var(--tw-sidebar-width, 280px);
+  background-color: var(--bg-secondary) !important;
+  border-right: 1px solid var(--border-color) !important;
 }
 
 .nav-tab {
-  padding: 8px 14px;
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
+  background: transparent;
+  border: 1px solid transparent;
   color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 600;
+  border-radius: 8px;
   cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.15s ease;
+  transition: all 0.2s ease;
+  font-family: var(--font-sans);
 }
 
 .nav-tab:hover {
+  background: var(--bg-tertiary);
   color: var(--text-primary);
-  background-color: var(--bg-tertiary);
-  border-radius: 4px 4px 0 0;
 }
 
 .nav-tab.active {
-  color: var(--accent-blue);
-  border-bottom-color: var(--accent-blue);
+  background: rgba(2, 132, 199, 0.12) !important;
+  color: #38bdf8 !important;
+  border-color: rgba(56, 189, 248, 0.3) !important;
+  font-weight: 700;
 }
 
-/* App Main Container */
-main.container {
-  max-width: 1600px;
-  margin: 0 auto;
-  padding: 20px;
+.nav-tab.active .menu-icon i {
+  color: #38bdf8 !important;
 }
 
-/* Cards & Grid */
-.grid-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 15px;
-  margin-bottom: 20px;
+/* Header & Top Bar */
+.header {
+  background-color: var(--bg-secondary) !important;
+  border-bottom: 1px solid var(--border-color) !important;
 }
 
+/* Forms & Inputs */
+select, input[type="text"], input[type="file"], textarea {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 13px;
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+select:focus, input[type="text"]:focus, textarea:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+/* Cards & Layout */
 .card {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 16px;
+  border-radius: 10px;
+  padding: 18px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  transition: border-color 0.15s ease;
 }
 
 .card h3 {
@@ -210,6 +153,7 @@ main.container {
   color: var(--text-muted);
   letter-spacing: 0.5px;
   margin-bottom: 8px;
+  font-weight: 700;
 }
 
 .card .metric-val {
@@ -224,14 +168,22 @@ main.container {
   margin-top: 4px;
 }
 
+.grid-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
 /* Tables */
 table.data-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   margin-top: 10px;
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: 8px;
   overflow: hidden;
 }
 
@@ -245,10 +197,14 @@ table.data-table th, table.data-table td {
 table.data-table th {
   background-color: var(--bg-tertiary);
   color: var(--text-secondary);
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
   font-size: 11px;
   letter-spacing: 0.5px;
+}
+
+table.data-table tr:last-child td {
+  border-bottom: none;
 }
 
 table.data-table tr:hover {
@@ -259,13 +215,15 @@ table.data-table tr:hover {
 .badge {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
   padding: 3px 8px;
-  border-radius: 4px;
+  border-radius: 6px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.3px;
+  line-height: 1.2;
 }
 
 .badge-pass {
@@ -303,17 +261,17 @@ table.data-table tr:hover {
   background: transparent;
 }
 
-/* Code & Terminal */
+/* Code & Terminal Inspection */
 pre.code-block {
   font-family: var(--font-mono);
   background-color: var(--bg-code);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 12px;
   font-size: 12px;
   overflow-x: auto;
   position: relative;
-  line-height: 1.4;
+  line-height: 1.5;
   color: #38bdf8;
 }
 
@@ -324,38 +282,44 @@ pre.code-block {
   background-color: var(--bg-tertiary);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 4px 8px;
   font-size: 11px;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .copy-btn:hover {
   background-color: var(--accent-blue);
   color: #fff;
+  border-color: var(--accent-blue);
 }
 
 /* Buttons */
 .btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 6px 14px;
-  border-radius: 6px;
-  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   border: 1px solid transparent;
   transition: all 0.15s ease;
+  font-family: var(--font-sans);
 }
 
 .btn-primary {
-  background-color: var(--accent-blue);
+  background-color: #0284c7;
   color: #ffffff;
+  border-color: #0284c7;
 }
 
 .btn-primary:hover {
-  background-color: var(--accent-hover);
+  background-color: #0369a1;
+  border-color: #0369a1;
 }
 
 .btn-secondary {
@@ -366,56 +330,62 @@ pre.code-block {
 
 .btn-secondary:hover {
   background-color: var(--border-color);
+  border-color: #38bdf8;
 }
 
 .btn-danger {
   background-color: #ef4444;
   color: #ffffff;
+  border-color: #ef4444;
 }
 
-/* Modal & Drawer */
+.btn-danger:hover {
+  background-color: #dc2626;
+}
+
+/* Modals & Backdrop Blur */
 .modal-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.65);
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  z-index: 1000;
 }
 
 .modal-content {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: 12px;
   width: 90%;
   max-width: 800px;
   max-height: 90vh;
   overflow-y: auto;
   padding: 24px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
 }
 
+/* Case Drawer */
 .drawer {
   position: fixed;
   top: 0;
   right: 0;
   width: 600px;
-  max-width: 100vw;
+  max-width: 92vw;
   height: 100vh;
   background-color: var(--bg-secondary);
   border-left: 1px solid var(--border-color);
-  z-index: 100;
-  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
+  z-index: 999;
+  box-shadow: -8px 0 30px rgba(0, 0, 0, 0.5);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
   padding: 24px;
 }
 
-/* Kanban Board */
+/* Kanban Board & Audit Matrix */
 .kanban-board {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -448,7 +418,6 @@ pre.code-block {
   margin-bottom: 10px;
 }
 
-/* Validation Matrix Grid */
 .matrix-cell-ok {
   background-color: var(--pass-bg);
   color: var(--pass-text);

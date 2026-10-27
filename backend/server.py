@@ -9,6 +9,7 @@ import json
 import uuid
 import queue
 import threading
+import mimetypes
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import urllib.parse
@@ -1234,14 +1235,14 @@ class AppRequestHandler(BaseHTTPRequestHandler):
         else:
             rel = path.lstrip("/")
             file_path = os.path.join(FRONTEND_DIR, rel)
-            if file_path.endswith(".js"):
-                content_type = "application/javascript; charset=utf-8"
-            elif file_path.endswith(".css"):
-                content_type = "text/css; charset=utf-8"
-            elif file_path.endswith(".json"):
-                content_type = "application/json; charset=utf-8"
+            ctype, _ = mimetypes.guess_type(file_path)
+            if ctype:
+                if ctype.startswith("text/") or ctype in ["application/javascript", "application/json"]:
+                    content_type = f"{ctype}; charset=utf-8"
+                else:
+                    content_type = ctype
             else:
-                content_type = "text/plain; charset=utf-8"
+                content_type = "application/octet-stream"
 
         if os.path.exists(file_path) and os.path.isfile(file_path):
             with open(file_path, "rb") as f:

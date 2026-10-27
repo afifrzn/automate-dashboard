@@ -89,6 +89,16 @@ function switchView(viewName) {
     activePanel.style.display = "block";
     renderActiveView(viewName);
   }
+  const breadcrumbEl = document.getElementById("activeViewBreadcrumb");
+  if (breadcrumbEl) {
+    const titles = {
+      runs: "Run Console",
+      courses: "Courses Explorer",
+      vms: "Test VMs & Credentials",
+      reports: "Reports & Exports"
+    };
+    breadcrumbEl.textContent = titles[viewName] || viewName;
+  }
 }
 
 function setupGlobalControls() {
@@ -139,9 +149,18 @@ function setupGlobalControls() {
   if (themeBtn) {
     themeBtn.addEventListener("click", () => {
       const html = document.documentElement;
-      const currentTheme = html.getAttribute("data-theme");
-      const nextTheme = currentTheme === "dark" ? "light" : "dark";
-      html.setAttribute("data-theme", nextTheme);
+      const isDark = html.classList.contains("dark") || html.getAttribute("data-theme") === "dark";
+      if (isDark) {
+        html.classList.remove("dark");
+        html.setAttribute("data-theme", "light");
+        html.setAttribute("data-theme-mode", "light");
+        localStorage.setItem("theme", "light");
+      } else {
+        html.classList.add("dark");
+        html.setAttribute("data-theme", "dark");
+        html.setAttribute("data-theme-mode", "dark");
+        localStorage.setItem("theme", "dark");
+      }
     });
   }
 }

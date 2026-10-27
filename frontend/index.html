@@ -1,80 +1,191 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html class="h-full dark" data-theme="dark" data-theme-mode="dark" dir="ltr" lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no"/>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+  <meta http-equiv="Pragma" content="no-cache"/>
+  <meta http-equiv="Expires" content="0"/>
   <title>Dashboard App — Grading Test & Course Audit Working Surface</title>
-  <link rel="stylesheet" href="style.css?v=20261027_04">
+  
+  <!-- Metronic 9 & Inter Typography Fonts -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"/>
+  
+  <!-- Metronic 9 Icons & Stylesheets -->
+  <link rel="stylesheet" href="assets/vendors/keenicons/styles.bundle.css"/>
+  <link rel="stylesheet" href="assets/css/styles.css"/>
+  <link rel="stylesheet" href="style.css?v=20261027_10"/>
 </head>
-<body>
-  <!-- Header / Global Shell (Section 7.1) -->
-  <header>
-    <div class="header-top">
-      <div class="brand">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
-          <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-          <polyline points="2 17 12 22 22 17"></polyline>
-          <polyline points="2 12 12 17 22 12"></polyline>
-        </svg>
-        <span>Dashboard App</span>
-        <span class="brand-badge">Baseline v2.0</span>
+<body class="antialiased flex h-full text-base text-gray-700 [--tw-page-bg:#0f1217] [--tw-page-bg-dark:var(--tw-coal-500)] demo1 sidebar-fixed header-fixed bg-[--tw-page-bg] dark:bg-[--tw-page-bg-dark]">
+
+  <!-- Page Layout -->
+  <div class="flex grow w-full">
+    
+    <!-- Metronic Sidebar (Section 7.1) -->
+    <div class="sidebar dark:bg-coal-600 bg-light border-e border-e-gray-200 dark:border-e-coal-100 fixed top-0 bottom-0 z-20 hidden lg:flex flex-col items-stretch shrink-0" id="sidebar">
+      
+      <!-- Sidebar Header (Branding & Collapse Toggle) -->
+      <div class="sidebar-header hidden lg:flex items-center relative justify-between px-6 shrink-0 h-[70px] border-b border-gray-200 dark:border-coal-100" id="sidebar_header">
+        <div class="flex items-center gap-3">
+          <div class="size-9 rounded-xl bg-primary/10 flex items-center justify-center text-primary" style="background: rgba(2, 132, 199, 0.15); color: #38bdf8;">
+            <i class="ki-filled ki-abstract-26 text-2xl"></i>
+          </div>
+          <div class="flex flex-col">
+            <span class="text-sm font-bold text-gray-900 dark:text-gray-100">Dashboard App</span>
+            <span class="text-xs font-semibold text-primary" style="color: #38bdf8;">Metronic v9.1</span>
+          </div>
+        </div>
       </div>
 
-      <div class="controls-group">
-        <!-- Course Selector (Dropdown to select working course) -->
-        <label style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Course:</label>
-        <select id="courseSelect" style="min-width: 180px; font-weight: 600;">
-          <option value="">Loading courses...</option>
-        </select>
+      <!-- Sidebar Content (Scrollable Navigation) -->
+      <div class="sidebar-content flex grow shrink-0 py-5 pe-2" id="sidebar_content">
+        <div class="scrollable-y-hover grow shrink-0 flex ps-4 pe-3 flex-col justify-between" id="sidebar_scrollable">
+          
+          <!-- Navigation Menu (4 Core Tabs per Grandma's Rule) -->
+          <div class="menu flex flex-col grow gap-1.5" data-menu="true" id="sidebar_menu">
+            
+            <div class="menu-item pt-2 pb-1">
+              <span class="menu-heading uppercase text-xs font-bold text-gray-400 ps-2">
+                Core Modules
+              </span>
+            </div>
 
-        <!-- Theme Toggle -->
-        <button id="themeToggleBtn" class="btn btn-secondary" title="Toggle Light/Dark Theme">
-          🌓
-        </button>
+            <!-- 1. Run Console -->
+            <div class="menu-item">
+              <button class="nav-tab active menu-link flex items-center grow border border-transparent rounded-lg gap-3 px-3 py-2.5 w-full text-start transition-colors" data-view="runs">
+                <span class="menu-icon text-gray-400 w-5">
+                  <i class="ki-filled ki-rocket text-xl"></i>
+                </span>
+                <span class="menu-title text-sm font-semibold text-gray-800 dark:text-gray-200">
+                  Run Console
+                </span>
+              </button>
+            </div>
 
-        <!-- Hidden controls to preserve compatibility with existing event listeners -->
-        <div style="display: none;">
-          <input type="text" id="globalSearch">
-          <select id="contentLangSelect"><option value="id" selected>Indonesian (id)</option></select>
-          <select id="uiLangSelect"><option value="en" selected>English</option></select>
-          <select id="userRoleSelect"><option value="Operator" selected>Operator</option></select>
+            <!-- 2. Courses Explorer -->
+            <div class="menu-item">
+              <button class="nav-tab menu-link flex items-center grow border border-transparent rounded-lg gap-3 px-3 py-2.5 w-full text-start transition-colors" data-view="courses">
+                <span class="menu-icon text-gray-400 w-5">
+                  <i class="ki-filled ki-book-open text-xl"></i>
+                </span>
+                <span class="menu-title text-sm font-semibold text-gray-800 dark:text-gray-200">
+                  Courses Explorer
+                </span>
+              </button>
+            </div>
+
+            <!-- 3. Test VMs & Credentials -->
+            <div class="menu-item">
+              <button class="nav-tab menu-link flex items-center grow border border-transparent rounded-lg gap-3 px-3 py-2.5 w-full text-start transition-colors" data-view="vms">
+                <span class="menu-icon text-gray-400 w-5">
+                  <i class="ki-filled ki-data text-xl"></i>
+                </span>
+                <span class="menu-title text-sm font-semibold text-gray-800 dark:text-gray-200">
+                  Test VMs & Credentials
+                </span>
+              </button>
+            </div>
+
+            <!-- 4. Reports & Exports -->
+            <div class="menu-item">
+              <button class="nav-tab menu-link flex items-center grow border border-transparent rounded-lg gap-3 px-3 py-2.5 w-full text-start transition-colors" data-view="reports">
+                <span class="menu-icon text-gray-400 w-5">
+                  <i class="ki-filled ki-chart-line text-xl"></i>
+                </span>
+                <span class="menu-title text-sm font-semibold text-gray-800 dark:text-gray-200">
+                  Reports & Exports
+                </span>
+              </button>
+            </div>
+
+          </div>
+
+          <!-- Sidebar Footer Status -->
+          <div class="pt-4 border-t border-gray-200 dark:border-coal-100 flex flex-col gap-2 px-2">
+            <div class="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+              <span class="font-medium">Backend Server:</span>
+              <span class="badge badge-pass" style="font-size: 10px; padding: 2px 6px;">Online :8080</span>
+            </div>
+            <div class="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+              <span class="font-medium">Operator Role:</span>
+              <span class="badge badge-skip" style="font-size: 10px; padding: 2px 6px;">Operator</span>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
 
-    <!-- Navigation Tabs: Clean, essential tabs only -->
-    <nav class="nav-bar" style="margin-top: 10px;">
-      <button class="nav-tab active" data-view="runs">⚡ Run Console</button>
-      <button class="nav-tab" data-view="courses">📚 Courses Explorer</button>
-      <button class="nav-tab" data-view="vms">🖥️ Test VMs & Credentials</button>
-      <button class="nav-tab" data-view="reports">📊 Reports & Exports</button>
-    </nav>
-  </header>
+    <!-- Wrapper -->
+    <div class="wrapper flex grow flex-col min-w-0">
+      
+      <!-- Metronic Top Header (Section 7.1) -->
+      <header class="header fixed top-0 z-10 start-0 end-0 flex items-stretch shrink-0 bg-light dark:bg-coal-600 border-b border-gray-200 dark:border-coal-100 h-[70px]" id="header">
+        <div class="container-fixed flex justify-between items-center w-full px-6 gap-4">
+          
+          <!-- Breadcrumb & Title -->
+          <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2">
+              <span id="activeViewBreadcrumb" class="text-sm font-bold text-gray-900 dark:text-gray-100">Run Console</span>
+              <span class="text-gray-400">/</span>
+              <span class="text-xs text-gray-500 font-medium">Grading Test & Course Working Surface</span>
+            </div>
+          </div>
 
-  <!-- Main Content Area -->
-  <main class="container">
-    <!-- View Containers -->
-    <section id="view-runs" class="view-panel"></section>
-    <section id="view-courses" class="view-panel" style="display: none;"></section>
-    <section id="view-vms" class="view-panel" style="display: none;"></section>
-    <section id="view-reports" class="view-panel" style="display: none;"></section>
-    <section id="view-overview" class="view-panel" style="display: none;"></section>
-    <section id="view-validation" class="view-panel" style="display: none;"></section>
-    <section id="view-crosscheck" class="view-panel" style="display: none;"></section>
-    <section id="view-findings" class="view-panel" style="display: none;"></section>
-    <section id="view-audit" class="view-panel" style="display: none;"></section>
-    <section id="view-manifest" class="view-panel" style="display: none;"></section>
-    <section id="view-quizzes" class="view-panel" style="display: none;"></section>
-    <section id="view-settings" class="view-panel" style="display: none;"></section>
-  </main>
+          <!-- Header Right Controls -->
+          <div class="flex items-center gap-4">
+            
+            <!-- Working Course Selector -->
+            <div class="flex items-center gap-2">
+              <label for="courseSelect" class="text-xs uppercase font-bold text-gray-400">Course:</label>
+              <select id="courseSelect" style="min-width: 190px; font-weight: 600; padding: 6px 12px;">
+                <option value="">Loading courses...</option>
+              </select>
+            </div>
+
+            <!-- Theme Toggle Button -->
+            <button id="themeToggleBtn" class="btn btn-secondary" style="padding: 7px 12px; font-size: 13px;" title="Toggle Light/Dark Theme">
+              <span class="dark:hidden">🌙 Dark</span>
+              <span class="hidden dark:inline">☀️ Light</span>
+            </button>
+
+            <!-- Hidden controls to preserve compatibility with existing event listeners -->
+            <div style="display: none;">
+              <input type="text" id="globalSearch">
+              <select id="contentLangSelect"><option value="id" selected>Indonesian (id)</option></select>
+              <select id="uiLangSelect"><option value="en" selected>English</option></select>
+              <select id="userRoleSelect"><option value="Operator" selected>Operator</option></select>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- Main Content Canvas -->
+      <main class="grow content p-6" id="content">
+        <div class="container-fixed">
+          <!-- View Containers -->
+          <section id="view-runs" class="view-panel"></section>
+          <section id="view-courses" class="view-panel" style="display: none;"></section>
+          <section id="view-vms" class="view-panel" style="display: none;"></section>
+          <section id="view-reports" class="view-panel" style="display: none;"></section>
+          <section id="view-overview" class="view-panel" style="display: none;"></section>
+          <section id="view-validation" class="view-panel" style="display: none;"></section>
+          <section id="view-crosscheck" class="view-panel" style="display: none;"></section>
+          <section id="view-findings" class="view-panel" style="display: none;"></section>
+          <section id="view-audit" class="view-panel" style="display: none;"></section>
+          <section id="view-manifest" class="view-panel" style="display: none;"></section>
+          <section id="view-quizzes" class="view-panel" style="display: none;"></section>
+          <section id="view-settings" class="view-panel" style="display: none;"></section>
+        </div>
+      </main>
+
+    </div>
+  </div>
 
   <!-- Case Drawer Modal (Section 7.5) -->
   <div id="caseDrawer" class="drawer" style="display: none;">
     <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 16px;">
-      <h3 id="drawerCaseTitle" style="font-size: 16px;">Case Details</h3>
+      <h3 id="drawerCaseTitle" style="font-size: 16px; font-weight: 700;">Case Details</h3>
       <button class="btn btn-secondary" onclick="closeCaseDrawer()">✕ Close</button>
     </div>
     <div id="drawerContent"></div>
@@ -84,7 +195,7 @@
   <div id="gateModal" class="modal-overlay" style="display: none;">
     <div class="modal-content">
       <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 16px;">
-        <h3 style="color: #ef4444; font-size: 16px;">⚠️ Operator Approval Required: State-Changing Gate</h3>
+        <h3 style="color: #ef4444; font-size: 16px; font-weight: 700;">⚠️ Operator Approval Required: State-Changing Gate</h3>
         <button class="btn btn-secondary" onclick="closeGateModal()">✕</button>
       </div>
       <p style="margin-bottom: 10px; color: var(--text-secondary);">
@@ -188,7 +299,8 @@
     </div>
   </div>
 
-  <!-- Application Logic -->
-  <script src="app.js?v=20261027_09"></script>
+  <!-- Metronic 9 Scripts & Application Logic -->
+  <script src="assets/js/core.bundle.js"></script>
+  <script src="app.js?v=20261027_10"></script>
 </body>
 </html>
