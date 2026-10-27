@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard App — Grading Test & Course Audit Working Surface</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Header / Global Shell (Section 7.1) -->
+  <header>
+    <div class="header-top">
+      <div class="brand">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
+          <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+          <polyline points="2 17 12 22 22 17"></polyline>
+          <polyline points="2 12 12 17 22 12"></polyline>
+        </svg>
+        <span>Dashboard App</span>
+        <span class="brand-badge">Baseline v2.0</span>
+      </div>
+
+      <div class="controls-group">
+        <!-- Global Search -->
+        <input type="text" id="globalSearch" placeholder="Search labs, cases, content, findings..." style="width: 260px;">
+
+        <!-- Course Selector (Dropdown to select working course) -->
+        <label style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Course:</label>
+        <select id="courseSelect" style="min-width: 180px; font-weight: 600;">
+          <option value="">Loading courses...</option>
+        </select>
+
+        <!-- Content Language Switcher (Section 5.0) -->
+        <label style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Content Lang:</label>
+        <select id="contentLangSelect">
+          <option value="id">Indonesian (id)</option>
+          <option value="en">English (en)</option>
+          <option value="both">Parallel (both)</option>
+        </select>
+
+        <!-- UI Language Switcher -->
+        <label style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">UI Lang:</label>
+        <select id="uiLangSelect">
+          <option value="en">English</option>
+          <option value="id">Bahasa Indonesia</option>
+        </select>
+
+        <!-- Role Switcher (Section 3) -->
+        <label style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Role:</label>
+        <select id="userRoleSelect">
+          <option value="Operator">Operator</option>
+          <option value="Author">Author</option>
+          <option value="Admin">Admin</option>
+          <option value="Viewer">Viewer</option>
+        </select>
+
+        <!-- Theme Toggle -->
+        <button id="themeToggleBtn" class="btn btn-secondary" title="Toggle Light/Dark Theme">
+          🌓
+        </button>
+      </div>
+    </div>
+
+    <!-- Environment Banner (Section 7.1) -->
+    <div id="envBanner" class="env-banner safe" style="margin-top: 8px; border-radius: 4px;">
+      <span id="envBannerText">Target: Lab Test VM (Local/Simulated) — Safe Ephemeral Environment [MODIFIABLE]</span>
+      <span id="targetStatusBadge" class="badge badge-pass">Target Ready</span>
+    </div>
+
+    <!-- Navigation Tabs (Streamlined, content & continuity removed, VM page added) -->
+    <nav class="nav-bar">
+      <button class="nav-tab active" data-view="overview">Overview</button>
+      <button class="nav-tab" data-view="courses">Courses Explorer</button>
+      <button class="nav-tab" data-view="vms">Test VMs & Credentials</button>
+      <button class="nav-tab" data-view="runs">Run Console</button>
+      <button class="nav-tab" data-view="validation">Validation Matrix</button>
+      <button class="nav-tab" data-view="crosscheck">Cross-Check</button>
+      <button class="nav-tab" data-view="findings">Findings Board</button>
+      <button class="nav-tab" data-view="audit">Course Audit</button>
+      <button class="nav-tab" data-view="manifest">Version Manifest</button>
+      <button class="nav-tab" data-view="quizzes">Quiz Review</button>
+      <button class="nav-tab" data-view="reports">Reports & Exports</button>
+      <button class="nav-tab" data-view="settings">Settings & RBAC</button>
+    </nav>
+  </header>
+
+  <!-- Main Content Area -->
+  <main class="container">
+    <!-- View Containers -->
+    <section id="view-overview" class="view-panel"></section>
+    <section id="view-courses" class="view-panel" style="display: none;"></section>
+    <section id="view-vms" class="view-panel" style="display: none;"></section>
+    <section id="view-runs" class="view-panel" style="display: none;"></section>
+    <section id="view-validation" class="view-panel" style="display: none;"></section>
+    <section id="view-crosscheck" class="view-panel" style="display: none;"></section>
+    <section id="view-findings" class="view-panel" style="display: none;"></section>
+    <section id="view-audit" class="view-panel" style="display: none;"></section>
+    <section id="view-manifest" class="view-panel" style="display: none;"></section>
+    <section id="view-quizzes" class="view-panel" style="display: none;"></section>
+    <section id="view-reports" class="view-panel" style="display: none;"></section>
+    <section id="view-settings" class="view-panel" style="display: none;"></section>
+  </main>
+
+  <!-- Case Drawer Modal (Section 7.5) -->
+  <div id="caseDrawer" class="drawer" style="display: none;">
+    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 16px;">
+      <h3 id="drawerCaseTitle" style="font-size: 16px;">Case Details</h3>
+      <button class="btn btn-secondary" onclick="closeCaseDrawer()">✕ Close</button>
+    </div>
+    <div id="drawerContent"></div>
+  </div>
+
+  <!-- Run Gate Modal (Section 10.4) -->
+  <div id="gateModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 16px;">
+        <h3 style="color: #ef4444; font-size: 16px;">⚠️ Operator Approval Required: State-Changing Gate</h3>
+        <button class="btn btn-secondary" onclick="closeGateModal()">✕</button>
+      </div>
+      <p style="margin-bottom: 10px; color: var(--text-secondary);">
+        The grading run paused in <code>awaiting_gate</code>. The following commands change lab VM state (kind: <strong id="gateKind"></strong>):
+      </p>
+      <pre class="code-block" id="gateCommands" style="margin-bottom: 15px; color: #f87171;"></pre>
+      <div id="gateNotes" style="font-size: 12px; color: var(--text-muted); margin-bottom: 15px;"></div>
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button class="btn btn-secondary" onclick="decideGate('deny')">Deny (Skip Steps)</button>
+        <button class="btn btn-danger" onclick="decideGate('approve')">Approve & Execute (Operator Role)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create New Lab Modal -->
+  <div id="newLabModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 650px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 16px;">
+        <h3 style="font-size: 16px; font-weight: 700;">+ Create New Lab</h3>
+        <button class="btn btn-secondary" onclick="closeNewLabModal()">✕</button>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+        <div>
+          <label style="display: block; font-size: 11px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">Chapter (e.g. 004):</label>
+          <input type="text" id="newLabChapter" placeholder="004" style="width: 100%;">
+        </div>
+        <div>
+          <label style="display: block; font-size: 11px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">Part (e.g. 1):</label>
+          <input type="text" id="newLabPart" placeholder="1" style="width: 100%;">
+        </div>
+      </div>
+      <div style="margin-bottom: 12px;">
+        <label style="display: block; font-size: 11px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">Lab Description / Title:</label>
+        <input type="text" id="newLabDescription" placeholder="Lab 4.1 - Deploying Redis Cluster" style="width: 100%;">
+      </div>
+      <div style="margin-bottom: 12px;">
+        <label style="display: block; font-size: 11px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">Start Commands (one per line, optional):</label>
+        <textarea id="newLabStart" rows="2" placeholder="kubectl apply -f /setup/redis-ns.yaml" style="width: 100%; font-family: var(--font-mono); font-size: 12px;"></textarea>
+      </div>
+      <div style="margin-bottom: 12px;">
+        <label style="display: block; font-size: 11px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">Finish Commands (cleanups, one per line):</label>
+        <textarea id="newLabFinish" rows="2" placeholder="kubectl delete namespace redis-cluster --ignore-not-found" style="width: 100%; font-family: var(--font-mono); font-size: 12px;"></textarea>
+      </div>
+      <div style="border-top: 1px solid var(--border-color); padding-top: 12px; margin-top: 12px;">
+        <h4 style="font-size: 12px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px;">First Grade Case (Initial Check)</h4>
+        <div style="margin-bottom: 8px;">
+          <input type="text" id="newCaseName" placeholder="case 1 - Check redis pod is running" style="width: 100%; margin-bottom: 6px;">
+          <input type="text" id="newCaseCmd" placeholder="kubectl get pod redis-0 -o jsonpath='{.status.phase}' | grep -qx 'Running' && echo 1 || echo 0" style="width: 100%; font-family: var(--font-mono); font-size: 12px; margin-bottom: 6px;">
+          <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 8px;">
+            <input type="text" id="newCaseExpect" placeholder="Expect: 1" value="1" style="width: 100%;">
+            <input type="text" id="newCaseHint" placeholder="Hint: Make sure redis-0 pod is Running" style="width: 100%;">
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px;">
+        <button class="btn btn-secondary" onclick="closeNewLabModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitNewLab()">Save & Register Lab</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import Course & Grading Modal -->
+  <div id="importModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 680px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 16px;">
+        <h3 style="font-size: 16px; font-weight: 700;">📂 Import Course (.zip) & Grading (.json) Package</h3>
+        <button class="btn btn-secondary" onclick="closeImportModal()">✕</button>
+      </div>
+
+      <div style="display: flex; gap: 10px; margin-bottom: 14px;">
+        <button class="btn btn-secondary" style="background: rgba(14, 165, 233, 0.15); border-color: #0284c7; color: #38bdf8;" onclick="loadSamplePackage('gitlab')">
+          ⚡ 1-Click Load: GitLab Fundamental (.zip + .json)
+        </button>
+        <button class="btn btn-secondary" onclick="loadSampleImport('dok8s')">
+          ⚡ Load dok8s Export (.json)
+        </button>
+      </div>
+
+      <div style="background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px; margin-bottom: 14px;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+          <span class="badge badge-skip">1. Course Archive (.zip)</span>
+          <span style="font-size: 12px; color: var(--text-secondary);">Contains modules, submodules, quizzes, and media</span>
+        </div>
+        <input type="file" id="importZipFileInput" accept=".zip" onchange="handleZipFileSelect(event)" style="width: 100%; margin-bottom: 6px;">
+        <div id="zipSelectedLabel" style="font-size: 11px; color: #4ade80;"></div>
+      </div>
+
+      <div style="background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px; margin-bottom: 14px;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+          <span class="badge badge-skip">2. Grading Export (.json)</span>
+          <span style="font-size: 12px; color: var(--text-secondary);">Contains labs, test cases, check commands, and scripts</span>
+        </div>
+        <input type="file" id="importGradeFileInput" accept=".json" onchange="handleGradeFileSelect(event)" style="width: 100%; margin-bottom: 6px;">
+        <textarea id="importGradeJsonText" rows="4" placeholder="Or paste grade_export.json text here..." style="width: 100%; font-family: var(--font-mono); font-size: 11px;"></textarea>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px;">
+        <button class="btn btn-secondary" onclick="closeImportModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitPackageImport()">Import Full Package</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Application Logic -->
+  <script src="app.js"></script>
+</body>
+</html>
