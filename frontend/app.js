@@ -1058,20 +1058,14 @@ async function executeGradingRun() {
 
     sse.addEventListener("ai_instructions_parsed", (e) => {
       const p = JSON.parse(e.data);
-      logBox.innerHTML += `<span style="color: #38bdf8; font-weight: 700;">📋 [AI AGENT] Extracted ${p.total_steps} instruction steps from Lab MD:</span>\n`;
-      (p.steps || []).slice(0, 10).forEach((s, idx) => {
-        logBox.innerHTML += `  <span style="color: #94a3b8;">${idx+1}.</span> <code style="color: #cbd5e1;">${escapeHtml(s)}</code>\n`;
-      });
-      if ((p.steps || []).length > 10) {
-        logBox.innerHTML += `  <span style="color: #64748b;">... and ${p.steps.length - 10} more steps</span>\n`;
-      }
-      logBox.innerHTML += `<span style="color: #fbbf24; font-weight: 600;">⚡ [AI AGENT] Following instructions on target lab VM...</span>\n`;
+      logBox.innerHTML += `<span style="color: #38bdf8; font-weight: 700;">📋 [AI AGENT] Extracted ${p.total_steps} instruction steps from Lab MD</span>\n<span style="color: #fbbf24; font-weight: 600;">⚡ [AI AGENT] Following instructions on target lab VM...</span>\n`;
       logBox.scrollTop = logBox.scrollHeight;
     });
 
     sse.addEventListener("ai_step_start", (e) => {
       const p = JSON.parse(e.data);
-      logBox.innerHTML += `  <span style="color: #60a5fa;">[Step ${p.step}/${p.total}]</span> <code style="color: #f1f5f9;">${escapeHtml(p.cmd)}</code>\n`;
+      const cleanCmd = (p.cmd || "").replace(/\r?\n/g, " ").trim();
+      logBox.innerHTML += `<div id="ai-step-${p.step}" style="margin: 2px 0; line-height: 1.5;"><span style="color: #60a5fa; font-weight: 600;">[Step ${p.step}/${p.total}]</span> <code style="color: #f1f5f9;">${escapeHtml(cleanCmd)}</code> <span style="color: #fbbf24; font-size: 11px;">... running</span></div>`;
       logBox.scrollTop = logBox.scrollHeight;
     });
 
@@ -1079,12 +1073,21 @@ async function executeGradingRun() {
       const p = JSON.parse(e.data);
       const ok = p.exit_code === 0;
       const statusColor = ok ? '#4ade80' : '#f87171';
-      logBox.innerHTML += `    <span style="color: ${statusColor}; font-size: 11px;">&rarr; Exit: ${p.exit_code} ${ok ? 'OK' : 'FAIL'}</span>`;
+      const cleanCmd = (p.cmd || "").replace(/\r?\n/g, " ").trim();
+      let previewOut = "";
       if (p.stdout && p.stdout.trim()) {
-        const previewOut = p.stdout.trim().split('\n')[0];
-        logBox.innerHTML += ` <span style="color: #94a3b8; font-size: 11px;">| ${escapeHtml(previewOut)}</span>`;
+        previewOut = p.stdout.trim().split(/\r?\n/)[0].trim();
+      } else if (p.stderr && p.stderr.trim()) {
+        previewOut = p.stderr.trim().split(/\r?\n/)[0].trim();
       }
-      logBox.innerHTML += `\n`;
+      const stepEl = document.getElementById(`ai-step-${p.step}`);
+      const stepContent = `<span style="color: #60a5fa; font-weight: 600;">[Step ${p.step}/${p.total}]</span> <code style="color: #f1f5f9;">${escapeHtml(cleanCmd)}</code> <span style="color: ${statusColor}; font-weight: 700; font-size: 11px;">&rarr; Exit: ${p.exit_code} ${ok ? 'OK' : 'FAIL'}</span>${previewOut ? ` <span style="color: #94a3b8; font-size: 11px;">| ${escapeHtml(previewOut)}</span>` : ''}`;
+
+      if (stepEl) {
+        stepEl.innerHTML = stepContent;
+      } else {
+        logBox.innerHTML += `<div style="margin: 2px 0; line-height: 1.5;">${stepContent}</div>`;
+      }
       logBox.scrollTop = logBox.scrollHeight;
     });
 

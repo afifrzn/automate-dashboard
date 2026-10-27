@@ -824,7 +824,7 @@ def execute_lab_instructions_agent(target, steps, env_vars=None, is_mock=False, 
     for item in steps:
         s_num = item["step"]
         s_cmd = item["cmd"]
-        raw = item["raw_cmd"]
+        raw = " ".join((item.get("raw_cmd") or "").splitlines()).strip()
         emit("ai_step_start", {
             "step": s_num,
             "total": total,
