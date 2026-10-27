@@ -5,10 +5,10 @@
  * Grader Lint promotion, and i18n support.
  */
 
-const API_BASE = "/api/v1";
+const API_BASE = (window.location.protocol === "file:") ? "http://127.0.0.1:8080/api/v1" : "/api/v1";
 
 let appState = {
-  activeView: "overview",
+  activeView: "runs",
   selectedCourse: localStorage.getItem("selectedCourse") || "",
   contentLanguage: "id",
   uiLanguage: "en",
@@ -92,35 +92,58 @@ function switchView(viewName) {
 }
 
 function setupGlobalControls() {
-  document.getElementById("courseSelect").addEventListener("change", (e) => {
-    appState.selectedCourse = e.target.value;
-    localStorage.setItem("selectedCourse", e.target.value);
-    showToast(`Switched active course to: ${appState.selectedCourse}`);
-    renderActiveView(appState.activeView);
-  });
+  const courseSelectEl = document.getElementById("courseSelect");
+  if (courseSelectEl) {
+    courseSelectEl.addEventListener("change", async (e) => {
+      appState.selectedCourse = e.target.value;
+      localStorage.setItem("selectedCourse", e.target.value);
+      showToast(`Switched active course to: ${appState.selectedCourse}`);
+      try {
+        const res = await fetch(`${API_BASE}/courses/${encodeURIComponent(appState.selectedCourse)}/labs`);
+        if (res.ok) {
+          appState.labs = await res.json();
+        }
+      } catch (err) {
+        console.error("Failed to load labs", err);
+      }
+      renderActiveView(appState.activeView);
+    });
+  }
 
-  document.getElementById("contentLangSelect").addEventListener("change", (e) => {
-    appState.contentLanguage = e.target.value;
-    renderActiveView(appState.activeView);
-  });
+  const contentLangEl = document.getElementById("contentLangSelect");
+  if (contentLangEl) {
+    contentLangEl.addEventListener("change", (e) => {
+      appState.contentLanguage = e.target.value;
+      renderActiveView(appState.activeView);
+    });
+  }
 
-  document.getElementById("uiLangSelect").addEventListener("change", (e) => {
-    appState.uiLanguage = e.target.value;
-    updateUILabels();
-  });
+  const uiLangEl = document.getElementById("uiLangSelect");
+  if (uiLangEl) {
+    uiLangEl.addEventListener("change", (e) => {
+      appState.uiLanguage = e.target.value;
+      updateUILabels();
+    });
+  }
 
-  document.getElementById("userRoleSelect").addEventListener("change", (e) => {
-    appState.userRole = e.target.value;
-    appState.userId = e.target.value.toLowerCase();
-    showToast(`Role switched to ${appState.userRole}`);
-  });
+  const roleEl = document.getElementById("userRoleSelect");
+  if (roleEl) {
+    roleEl.addEventListener("change", (e) => {
+      appState.userRole = e.target.value;
+      appState.userId = e.target.value.toLowerCase();
+      showToast(`Role switched to ${appState.userRole}`);
+    });
+  }
 
-  document.getElementById("themeToggleBtn").addEventListener("click", () => {
-    const html = document.documentElement;
-    const currentTheme = html.getAttribute("data-theme");
-    const nextTheme = currentTheme === "dark" ? "light" : "dark";
-    html.setAttribute("data-theme", nextTheme);
-  });
+  const themeBtn = document.getElementById("themeToggleBtn");
+  if (themeBtn) {
+    themeBtn.addEventListener("click", () => {
+      const html = document.documentElement;
+      const currentTheme = html.getAttribute("data-theme");
+      const nextTheme = currentTheme === "dark" ? "light" : "dark";
+      html.setAttribute("data-theme", nextTheme);
+    });
+  }
 }
 
 function updateUILabels() {
@@ -131,6 +154,16 @@ function updateUILabels() {
 async function fetchInitialData() {
   await refreshCourseDropdown();
   await refreshTargetsList();
+  if (appState.selectedCourse) {
+    try {
+      const res = await fetch(`${API_BASE}/courses/${encodeURIComponent(appState.selectedCourse)}/labs`);
+      if (res.ok) {
+        appState.labs = await res.json();
+      }
+    } catch (e) {
+      console.error("Failed to load initial labs", e);
+    }
+  }
   renderActiveView(appState.activeView);
 }
 
@@ -142,12 +175,14 @@ async function refreshTargetsList() {
       const tgt = appState.targets[0];
       const banner = document.getElementById("envBanner");
       const bannerText = document.getElementById("envBannerText");
-      if (tgt.modifiable) {
-        banner.className = "env-banner safe";
-        bannerText.textContent = `Target: ${tgt.name} (${tgt.host}) — Testing Environment [MODIFIABLE]`;
-      } else {
-        banner.className = "env-banner";
-        bannerText.textContent = `Target: ${tgt.name} (${tgt.host}) — IMMUTABLE PRODUCTION [STATE CHANGES FORBIDDEN WITHOUT GATE]`;
+      if (banner && bannerText) {
+        if (tgt.modifiable) {
+          banner.className = "env-banner safe";
+          bannerText.textContent = `Target: ${tgt.name} (${tgt.host}) — Testing Environment [MODIFIABLE]`;
+        } else {
+          banner.className = "env-banner";
+          bannerText.textContent = `Target: ${tgt.name} (${tgt.host}) — IMMUTABLE PRODUCTION [STATE CHANGES FORBIDDEN WITHOUT GATE]`;
+        }
       }
     }
   } catch (e) {
@@ -529,7 +564,7 @@ async function renderRuns() {
 
         <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary);">Target Lab:</label>
         <select id="runLabSelect" style="width: 100%; margin-bottom: 12px;" onchange="loadLabMdForSelectedLab()">
-          ${appState.labs.map(l => `<option value="${l.id}">${l.description} (${l.chapter}.${l.part})</option>`).join('')}
+          ${appState.labs.length > 0 ? appState.labs.map(l => `<option value="${l.id}">${escapeHtml(l.description || l.title || l.id)} (${l.chapter}.${l.part})</option>`).join('') : '<option value="">(No labs loaded for this course)</option>'}
         </select>
 
         <label style="display: block; font-size: 12px; margin-bottom: 4px; color: #c084fc; font-weight: 600;">⚡ Workflow Mode:</label>
@@ -702,11 +737,16 @@ async function renderRuns() {
 
 async function loadLabMdForSelectedLab() {
   const select = document.getElementById("runLabSelect");
-  if (!select || !select.value) return;
-  const labId = select.value;
   const infoEl = document.getElementById("labMdInfo");
   const previewEl = document.getElementById("labMdPreview");
   const editorInput = document.getElementById("labMdEditorInput");
+
+  if (!select || !select.value) {
+    if (infoEl) infoEl.textContent = appState.labs.length === 0 ? "(No labs found in selected course)" : "(Please select a lab above)";
+    if (previewEl) previewEl.textContent = "(No lab selected)";
+    return;
+  }
+  const labId = select.value;
 
   if (infoEl) infoEl.textContent = "Loading Lab MD...";
 

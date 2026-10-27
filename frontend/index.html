@@ -3,8 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>Dashboard App — Grading Test & Course Audit Working Surface</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=20261027_04">
 </head>
 <body>
   <!-- Header / Global Shell (Section 7.1) -->
@@ -21,83 +24,50 @@
       </div>
 
       <div class="controls-group">
-        <!-- Global Search -->
-        <input type="text" id="globalSearch" placeholder="Search labs, cases, content, findings..." style="width: 260px;">
-
         <!-- Course Selector (Dropdown to select working course) -->
         <label style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Course:</label>
         <select id="courseSelect" style="min-width: 180px; font-weight: 600;">
           <option value="">Loading courses...</option>
         </select>
 
-        <!-- Content Language Switcher (Section 5.0) -->
-        <label style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Content Lang:</label>
-        <select id="contentLangSelect">
-          <option value="id">Indonesian (id)</option>
-          <option value="en">English (en)</option>
-          <option value="both">Parallel (both)</option>
-        </select>
-
-        <!-- UI Language Switcher -->
-        <label style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">UI Lang:</label>
-        <select id="uiLangSelect">
-          <option value="en">English</option>
-          <option value="id">Bahasa Indonesia</option>
-        </select>
-
-        <!-- Role Switcher (Section 3) -->
-        <label style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Role:</label>
-        <select id="userRoleSelect">
-          <option value="Operator">Operator</option>
-          <option value="Author">Author</option>
-          <option value="Admin">Admin</option>
-          <option value="Viewer">Viewer</option>
-        </select>
-
         <!-- Theme Toggle -->
         <button id="themeToggleBtn" class="btn btn-secondary" title="Toggle Light/Dark Theme">
           🌓
         </button>
+
+        <!-- Hidden controls to preserve compatibility with existing event listeners -->
+        <div style="display: none;">
+          <input type="text" id="globalSearch">
+          <select id="contentLangSelect"><option value="id" selected>Indonesian (id)</option></select>
+          <select id="uiLangSelect"><option value="en" selected>English</option></select>
+          <select id="userRoleSelect"><option value="Operator" selected>Operator</option></select>
+        </div>
       </div>
     </div>
 
-    <!-- Environment Banner (Section 7.1) -->
-    <div id="envBanner" class="env-banner safe" style="margin-top: 8px; border-radius: 4px;">
-      <span id="envBannerText">Target: Lab Test VM (Local/Simulated) — Safe Ephemeral Environment [MODIFIABLE]</span>
-      <span id="targetStatusBadge" class="badge badge-pass">Target Ready</span>
-    </div>
-
-    <!-- Navigation Tabs (Streamlined, content & continuity removed, VM page added) -->
-    <nav class="nav-bar">
-      <button class="nav-tab active" data-view="overview">Overview</button>
-      <button class="nav-tab" data-view="courses">Courses Explorer</button>
-      <button class="nav-tab" data-view="vms">Test VMs & Credentials</button>
-      <button class="nav-tab" data-view="runs">Run Console</button>
-      <button class="nav-tab" data-view="validation">Validation Matrix</button>
-      <button class="nav-tab" data-view="crosscheck">Cross-Check</button>
-      <button class="nav-tab" data-view="findings">Findings Board</button>
-      <button class="nav-tab" data-view="audit">Course Audit</button>
-      <button class="nav-tab" data-view="manifest">Version Manifest</button>
-      <button class="nav-tab" data-view="quizzes">Quiz Review</button>
-      <button class="nav-tab" data-view="reports">Reports & Exports</button>
-      <button class="nav-tab" data-view="settings">Settings & RBAC</button>
+    <!-- Navigation Tabs: Clean, essential tabs only -->
+    <nav class="nav-bar" style="margin-top: 10px;">
+      <button class="nav-tab active" data-view="runs">⚡ Run Console</button>
+      <button class="nav-tab" data-view="courses">📚 Courses Explorer</button>
+      <button class="nav-tab" data-view="vms">🖥️ Test VMs & Credentials</button>
+      <button class="nav-tab" data-view="reports">📊 Reports & Exports</button>
     </nav>
   </header>
 
   <!-- Main Content Area -->
   <main class="container">
     <!-- View Containers -->
-    <section id="view-overview" class="view-panel"></section>
+    <section id="view-runs" class="view-panel"></section>
     <section id="view-courses" class="view-panel" style="display: none;"></section>
     <section id="view-vms" class="view-panel" style="display: none;"></section>
-    <section id="view-runs" class="view-panel" style="display: none;"></section>
+    <section id="view-reports" class="view-panel" style="display: none;"></section>
+    <section id="view-overview" class="view-panel" style="display: none;"></section>
     <section id="view-validation" class="view-panel" style="display: none;"></section>
     <section id="view-crosscheck" class="view-panel" style="display: none;"></section>
     <section id="view-findings" class="view-panel" style="display: none;"></section>
     <section id="view-audit" class="view-panel" style="display: none;"></section>
     <section id="view-manifest" class="view-panel" style="display: none;"></section>
     <section id="view-quizzes" class="view-panel" style="display: none;"></section>
-    <section id="view-reports" class="view-panel" style="display: none;"></section>
     <section id="view-settings" class="view-panel" style="display: none;"></section>
   </main>
 
@@ -219,6 +189,6 @@
   </div>
 
   <!-- Application Logic -->
-  <script src="app.js"></script>
+  <script src="app.js?v=20261027_04"></script>
 </body>
 </html>
