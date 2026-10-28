@@ -412,8 +412,26 @@ def import_course_zip_and_grading(zip_data, grade_data=None, user_id="author"):
     conn.commit()
     conn.close()
 
-    # 2. Ingest Grade JSON if provided
+    # 2. Ingest Grade JSON if provided, or auto-detect from scratch folder
     grade_report = None
+    if not grade_data:
+        # Check scratch directories for candidate grade_export files
+        scratch_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        scratch_parent = os.path.dirname(scratch_dir)
+        candidate_paths = [
+            os.path.join(scratch_parent, "grade_export.json"),
+            os.path.join(scratch_parent, "remediated_grade_export.json"),
+            os.path.join(scratch_dir, "grade_export.json"),
+        ]
+        for cp in candidate_paths:
+            if os.path.exists(cp):
+                try:
+                    with open(cp, "r", encoding="utf-8") as gf:
+                        grade_data = json.load(gf)
+                    break
+                except Exception:
+                    pass
+
     if grade_data:
         parsed_grade = grade_data
         if isinstance(grade_data, str):
