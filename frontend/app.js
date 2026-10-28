@@ -67,6 +67,12 @@ document.addEventListener("DOMContentLoaded", () => {
   fetchInitialData();
 });
 
+function closeMobileSidebar() {
+  const sb = document.getElementById("sidebar");
+  if (sb) sb.classList.remove("mobile-open");
+}
+window.closeMobileSidebar = closeMobileSidebar;
+
 function setupNavigation() {
   const tabs = document.querySelectorAll(".nav-tab");
   tabs.forEach(tab => {
@@ -75,6 +81,7 @@ function setupNavigation() {
       tab.classList.add("active");
       const viewName = tab.getAttribute("data-view");
       switchView(viewName);
+      closeMobileSidebar();
     });
   });
 }
