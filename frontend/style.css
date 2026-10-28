@@ -69,6 +69,8 @@
 
 * {
   box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
 body {
@@ -78,13 +80,128 @@ body {
   line-height: 1.5;
   font-size: 13px;
   overflow-x: hidden;
+  margin: 0;
+  padding: 0;
+  width: 100%;
 }
 
-/* Sidebar & Navigation Styling */
-.sidebar {
-  width: var(--tw-sidebar-width, 280px);
-  background-color: var(--bg-secondary) !important;
-  border-right: 1px solid var(--border-color) !important;
+/* ==========================================================================
+   Layout Positioning & Anti-Collapsing Architecture
+   ========================================================================== */
+
+:root {
+  --sidebar-w: 260px;
+  --header-h: 70px;
+}
+
+@media (min-width: 1024px) {
+  .sidebar {
+    width: var(--sidebar-w) !important;
+    position: fixed !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    z-index: 50 !important;
+    display: flex !important;
+    background-color: var(--bg-secondary) !important;
+    border-right: 1px solid var(--border-color) !important;
+  }
+  .header {
+    left: var(--sidebar-w) !important;
+    right: 0 !important;
+    height: var(--header-h) !important;
+    position: fixed !important;
+    top: 0 !important;
+    z-index: 40 !important;
+    background-color: var(--bg-secondary) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+  }
+  .wrapper {
+    margin-left: var(--sidebar-w) !important;
+    padding-top: var(--header-h) !important;
+    width: calc(100% - var(--sidebar-w)) !important;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+  }
+}
+
+@media (max-width: 1023px) {
+  .sidebar {
+    display: none !important;
+  }
+  .sidebar.mobile-open {
+    display: flex !important;
+    position: fixed !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    width: var(--sidebar-w) !important;
+    z-index: 100 !important;
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.7);
+    background-color: var(--bg-secondary) !important;
+    border-right: 1px solid var(--border-color) !important;
+  }
+  .header {
+    left: 0 !important;
+    right: 0 !important;
+    height: var(--header-h) !important;
+    position: fixed !important;
+    top: 0 !important;
+    z-index: 40 !important;
+    background-color: var(--bg-secondary) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+  }
+  .wrapper {
+    margin-left: 0 !important;
+    padding-top: var(--header-h) !important;
+    width: 100% !important;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+  }
+}
+
+/* Content Canvas & Responsive Grids */
+.content-canvas {
+  width: 100%;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.runs-layout-grid {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .runs-layout-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.vms-layout-grid {
+  display: grid;
+  grid-template-columns: 380px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .vms-layout-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.case-badge-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
 .nav-tab {
@@ -111,12 +228,6 @@ body {
 
 .nav-tab.active .menu-icon i {
   color: #38bdf8 !important;
-}
-
-/* Header & Top Bar */
-.header {
-  background-color: var(--bg-secondary) !important;
-  border-bottom: 1px solid var(--border-color) !important;
 }
 
 /* Forms & Inputs */

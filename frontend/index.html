@@ -14,7 +14,7 @@
   <!-- Metronic 9 Icons & Stylesheets -->
   <link rel="stylesheet" href="assets/vendors/keenicons/styles.bundle.css"/>
   <link rel="stylesheet" href="assets/css/styles.css"/>
-  <link rel="stylesheet" href="style.css?v=20261027_10"/>
+  <link rel="stylesheet" href="style.css?v=20261028_02"/>
 </head>
 <body class="antialiased flex h-full text-base text-gray-700 [--tw-page-bg:#0f1217] [--tw-page-bg-dark:var(--tw-coal-500)] demo1 sidebar-fixed header-fixed bg-[--tw-page-bg] dark:bg-[--tw-page-bg-dark]">
 
@@ -22,12 +22,12 @@
   <div class="flex grow w-full">
     
     <!-- Metronic Sidebar (Section 7.1) -->
-    <div class="sidebar dark:bg-coal-600 bg-light border-e border-e-gray-200 dark:border-e-coal-100 fixed top-0 bottom-0 z-20 hidden lg:flex flex-col items-stretch shrink-0" id="sidebar">
+    <div class="sidebar dark:bg-coal-600 bg-light border-e border-e-gray-200 dark:border-e-coal-100" id="sidebar">
       
       <!-- Sidebar Header (Branding & Collapse Toggle) -->
-      <div class="sidebar-header hidden lg:flex items-center relative justify-between px-6 shrink-0 h-[70px] border-b border-gray-200 dark:border-coal-100" id="sidebar_header">
+      <div class="sidebar-header flex items-center relative justify-between px-6 shrink-0 h-[70px] border-b border-gray-200 dark:border-coal-100" id="sidebar_header">
         <div class="flex items-center gap-3">
-          <div class="size-9 rounded-xl bg-primary/10 flex items-center justify-center text-primary" style="background: rgba(2, 132, 199, 0.15); color: #38bdf8;">
+          <div class="size-9 rounded-xl flex items-center justify-center text-primary" style="background: rgba(2, 132, 199, 0.15); color: #38bdf8;">
             <i class="ki-filled ki-abstract-26 text-2xl"></i>
           </div>
           <div class="flex flex-col">
@@ -120,11 +120,14 @@
     <div class="wrapper flex grow flex-col min-w-0">
       
       <!-- Metronic Top Header (Section 7.1) -->
-      <header class="header fixed top-0 z-10 start-0 end-0 flex items-stretch shrink-0 bg-light dark:bg-coal-600 border-b border-gray-200 dark:border-coal-100 h-[70px]" id="header">
-        <div class="container-fixed flex justify-between items-center w-full px-6 gap-4">
+      <header class="header flex items-stretch shrink-0 bg-light dark:bg-coal-600 border-b border-gray-200 dark:border-coal-100 h-[70px]" id="header">
+        <div class="flex justify-between items-center w-full px-6 gap-4">
           
-          <!-- Breadcrumb & Title -->
+          <!-- Mobile Menu Button & Breadcrumb -->
           <div class="flex items-center gap-3">
+            <button id="mobileSidebarToggleBtn" class="btn btn-secondary lg:hidden" style="padding: 6px 10px;" title="Toggle Menu">
+              <i class="ki-filled ki-burger-menu-2 text-lg"></i>
+            </button>
             <div class="flex items-center gap-2">
               <span id="activeViewBreadcrumb" class="text-sm font-bold text-gray-900 dark:text-gray-100">Run Console</span>
               <span class="text-gray-400">/</span>
@@ -161,8 +164,26 @@
       </header>
 
       <!-- Main Content Canvas -->
-      <main class="grow content p-6" id="content">
-        <div class="container-fixed">
+      <main class="grow content" id="content">
+        <div class="content-canvas">
+          <!-- View Containers -->
+          <section id="view-runs" class="view-panel"></section>
+          <section id="view-courses" class="view-panel" style="display: none;"></section>
+          <section id="view-vms" class="view-panel" style="display: none;"></section>
+          <section id="view-reports" class="view-panel" style="display: none;"></section>
+          <section id="view-overview" class="view-panel" style="display: none;"></section>
+          <section id="view-validation" class="view-panel" style="display: none;"></section>
+          <section id="view-crosscheck" class="view-panel" style="display: none;"></section>
+          <section id="view-findings" class="view-panel" style="display: none;"></section>
+          <section id="view-audit" class="view-panel" style="display: none;"></section>
+          <section id="view-manifest" class="view-panel" style="display: none;"></section>
+          <section id="view-quizzes" class="view-panel" style="display: none;"></section>
+          <section id="view-settings" class="view-panel" style="display: none;"></section>
+        </div>
+      </main>
+
+    </div>
+  </div>
           <!-- View Containers -->
           <section id="view-runs" class="view-panel"></section>
           <section id="view-courses" class="view-panel" style="display: none;"></section>
@@ -301,6 +322,6 @@
 
   <!-- Metronic 9 Scripts & Application Logic -->
   <script src="assets/js/core.bundle.js"></script>
-  <script src="app.js?v=20261027_10"></script>
+  <script src="app.js?v=20261028_02"></script>
 </body>
 </html>

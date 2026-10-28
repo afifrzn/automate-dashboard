@@ -163,6 +163,14 @@ function setupGlobalControls() {
       }
     });
   }
+
+  const mobileBtn = document.getElementById("mobileSidebarToggleBtn");
+  if (mobileBtn) {
+    mobileBtn.addEventListener("click", () => {
+      const sb = document.getElementById("sidebar");
+      if (sb) sb.classList.toggle("mobile-open");
+    });
+  }
 }
 
 function updateUILabels() {
@@ -574,7 +582,7 @@ function onRunStateChange() {
 async function renderRuns() {
   const container = document.getElementById("view-runs");
   container.innerHTML = `
-    <div style="display: grid; grid-template-columns: 380px 1fr; gap: 20px;">
+    <div class="runs-layout-grid">
       <!-- Left: Run Configuration Console -->
       <div class="card">
         <h3 style="font-size: 14px; margin-bottom: 14px; color: var(--text-primary); text-transform: none; font-weight: 700;">
@@ -734,7 +742,7 @@ async function renderRuns() {
             </div>
 
             <!-- Manual Pass / Fail Badges Row -->
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+            <div class="case-badge-grid">
               <!-- Passed Cases Box -->
               <div style="background: rgba(34, 197, 94, 0.08); border: 1px solid #22c55e; border-radius: 6px; padding: 10px 12px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
@@ -783,7 +791,7 @@ async function renderRuns() {
             </div>
 
             <!-- nusactl Pass / Fail Badges Row -->
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+            <div class="case-badge-grid">
               <!-- nusactl Passed Cases Box -->
               <div style="background: rgba(34, 197, 94, 0.08); border: 1px solid #22c55e; border-radius: 6px; padding: 10px 12px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
@@ -1765,7 +1773,7 @@ async function renderTestVMs() {
         </div>
       </div>
 
-      <div style="display: grid; grid-template-columns: 420px 1fr; gap: 24px;">
+      <div class="vms-layout-grid">
         <!-- Add / Edit VM Form -->
         <div class="card">
           <h3 style="font-size: 14px; margin-bottom: 14px; color: var(--text-primary); text-transform: none; font-weight: 700;">
