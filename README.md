@@ -53,6 +53,8 @@ dashboard_app/
 ├── tests/
 │   └── test_seed.py        # Automated acceptance test suite for Section 17 seed dataset
 ├── run.py                  # Single-command launcher
+├── requirements.txt        # Python dependency manifest (paramiko)
+├── LINUX_GUIDE.md          # Complete Linux Antigravity setup, development & deployment guide
 └── README.md               # Architecture documentation
 ```
 
@@ -60,21 +62,27 @@ dashboard_app/
 
 ## 3. Running the Application
 
-### 3.1 Start the Server
-From the project directory:
-```powershell
-python run.py
-```
-Or specify a custom port:
-```powershell
-python run.py 8080
-```
-Open your browser at: **`http://127.0.0.1:8080`**
+### 3.1 Quick Start (Windows / Linux)
+1. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. Start the server:
+   ```bash
+   python run.py
+   ```
+   Or specify custom port and host:
+   ```bash
+   python run.py 8080 0.0.0.0
+   ```
+3. Open your browser at: **`http://127.0.0.1:8080`** (or `http://<ip>:8080` for remote/VM access).
+
+> 📘 **Linux Antigravity Users**: See [LINUX_GUIDE.md](file:///LINUX_GUIDE.md) for complete instructions on running, developing, and pushing updates directly from Linux without needing Windows.
 
 ### 3.2 Run the Acceptance Test Suite (Section 17 Seed Test)
 To verify all Grader Lint rules, re-import idempotency, revision diffs, secret redaction, and verdict logic:
-```powershell
-python tests/test_seed.py
+```bash
+python -m unittest discover tests
 ```
 
 All 5 acceptance test suites pass:

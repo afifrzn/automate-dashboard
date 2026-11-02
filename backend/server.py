@@ -1274,13 +1274,17 @@ class AppRequestHandler(BaseHTTPRequestHandler):
             else:
                 self._send_text("Not Found", 404)
 
-def run_server(port=8080):
+def run_server(port=8080, host=None):
     init_db()
     load_seed_data(load_dummy_dok8s=False)
-    server_address = ("127.0.0.1", port)
+    if not host:
+        host = os.environ.get("HOST", "0.0.0.0")
+    server_address = (host, port)
     httpd = ThreadingHTTPServer(server_address, AppRequestHandler)
-    print(f"[*] Dashboard App Server running at http://127.0.0.1:{port}")
+    print(f"[*] Dashboard App Server running at http://{host}:{port}")
     httpd.serve_forever()
 
 if __name__ == "__main__":
-    run_server(8080)
+    port = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 8080
+    host = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("HOST", "0.0.0.0")
+    run_server(port=port, host=host)
