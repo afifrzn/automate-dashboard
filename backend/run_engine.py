@@ -255,7 +255,11 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
     is_mock_target = target.get("host") in ["localhost", "mock", "127.0.0.1", "test-vm"] or not target.get("host")
 
     # ==================== AI Lab MD Instruction Execution ====================
-    from .ai_agent import resolve_lab_markdown, extract_instructions_from_lab_md, execute_lab_instructions_agent, resolve_nusactl_grade_slug, synthesize_cases_from_lab_md
+    from .ai_agent import (
+        resolve_lab_markdown, extract_instructions_from_lab_md,
+        execute_lab_instructions_agent, resolve_nusactl_grade_slug,
+        synthesize_cases_from_lab_md, is_challenge_lab
+    )
 
     lab_md = lab.get("lab_md")
     if not lab_md:
@@ -276,6 +280,7 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
     # Synthesize cases if empty and lab_md is present
     if not cases and lab_md:
         cases = synthesize_cases_from_lab_md(lab_md, target=target)
+    lab["grade"] = cases
 
     # ==================== STAGE 1 (4-Step Workflow): Pre-Instructions Baseline Grade ====================
     pre_verdict = "FAIL"
@@ -320,28 +325,31 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
             "state": "unsolved"
         })
 
-    # ==================== STAGE 2: Following Instructions (AI Solver) ====================
+    # ==================== STAGE 2: Following Instructions / Solving Challenge (AI Solver) ====================
     should_follow = follow_lab_md or (state == "solved") or (workflow == "4step")
+    challenge_mode = is_challenge_lab(lab_md or "", lab=lab)
 
     if workflow == "4step":
         emit_event("pipeline_stage_start", {
             "stage": 2,
             "total_stages": 4,
-            "name": "Following instructions (AI Solver on Target VM)"
+            "name": "Solving Lab Challenge from Requirements & Grader Cases (AI Solver on Target VM)" if challenge_mode else "Following instructions (AI Solver on Target VM)"
         })
 
-    if should_follow and lab_md:
+    if should_follow and (lab_md or cases):
         emit_event("ai_md_reading", {
             "lab_id": lab_id,
             "description": lab.get("description", "Lab"),
-            "md_chars": len(lab_md)
+            "md_chars": len(lab_md or ""),
+            "solver_mode": "challenge" if challenge_mode else "guided"
         })
 
-        steps = extract_instructions_from_lab_md(lab_md, target=target, env_vars=effective_vars, lab=lab)
+        steps = extract_instructions_from_lab_md(lab_md or "", target=target, env_vars=effective_vars, lab=lab)
         if steps:
             emit_event("ai_instructions_parsed", {
                 "total_steps": len(steps),
-                "steps": [s["raw_cmd"] for s in steps]
+                "steps": [s["raw_cmd"] for s in steps],
+                "solver_mode": "challenge" if challenge_mode else "guided"
             })
 
             success, results = execute_lab_instructions_agent(
@@ -352,16 +360,17 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
                 event_callback=emit_event
             )
 
+            mode_label = "challenge requirement solution steps" if challenge_mode else "instruction steps from Lab MD"
             emit_event("ai_instructions_complete", {
-                "message": f"Successfully executed {len(steps)} instruction steps from Lab MD on target VM. Target is now in SOLVED state."
+                "message": f"Successfully executed {len(steps)} {mode_label} on target VM. Target is now in SOLVED state."
             })
         else:
             emit_event("ai_instructions_complete", {
-                "message": "No executable instruction code blocks found in Lab MD. Proceeding directly to grader checks."
+                "message": "No executable instruction or requirement steps found. Proceeding directly to grader checks."
             })
-    elif should_follow and not lab_md:
+    elif should_follow:
         emit_event("ai_instructions_complete", {
-            "message": "Notice: No Lab MD found for this lab. Proceeding with standard execution."
+            "message": "Notice: No Lab MD or Grader requirements found for this lab. Proceeding with standard execution."
         })
 
     case_results = []

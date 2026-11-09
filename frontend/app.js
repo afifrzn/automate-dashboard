@@ -369,8 +369,11 @@ async function renderCourses() {
     container.innerHTML = `
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
         <div>
-          <h2 style="font-size: 18px; font-weight: 700;">Courses Explorer — ${appState.selectedCourse.toUpperCase()}</h2>
-          <p style="color: var(--text-secondary); font-size: 12px;">Inspect all labs, grader cases, lint issues, and definition of done checklist.</p>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <h2 style="font-size: 18px; font-weight: 700;">Courses Explorer — ${appState.selectedCourse.toUpperCase()}</h2>
+            <span class="badge badge-pass">${labs.length} Labs Only</span>
+          </div>
+          <p style="color: var(--text-secondary); font-size: 12px;">Showing Lab tasks only (non-lab theory & quizzes filtered out). Inspect grader cases, lint issues, and readiness.</p>
         </div>
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
           <button class="btn btn-secondary" onclick="openImportModal()">📂 Import Course / Grading</button>
@@ -398,7 +401,13 @@ async function renderCourses() {
           </tr>
         </thead>
         <tbody>
-          ${labs.map(l => {
+          ${labs.length === 0 ? `
+            <tr>
+              <td colspan="6" style="text-align: center; padding: 30px; color: var(--text-muted);">
+                No labs found in this course. Click <strong>📂 Import Course / Grading</strong> to import a Course ZIP or Grading JSON.
+              </td>
+            </tr>
+          ` : labs.map(l => {
             const unsolvedRes = (l.validation_states || {}).unsolved || "not_run";
             const solvedRes = (l.validation_states || {}).solved || "not_run";
             const nearMissRes = (l.validation_states || {}).near_miss || "not_run";
@@ -588,6 +597,17 @@ function onRunStateChange() {
 
 async function renderRuns() {
   const container = document.getElementById("view-runs");
+  if (appState.selectedCourse && (!appState.labs || appState.labs.length === 0)) {
+    try {
+      const res = await fetch(`${API_BASE}/courses/${encodeURIComponent(appState.selectedCourse)}/labs`);
+      if (res.ok) {
+        const data = await res.json();
+        appState.labs = Array.isArray(data) ? data : [];
+      }
+    } catch (e) {
+      console.error("Failed to load labs for Run Console", e);
+    }
+  }
   container.innerHTML = `
     <div class="runs-layout-grid">
       <!-- Left: Run Configuration Console -->
@@ -620,14 +640,14 @@ async function renderRuns() {
           <option value="final">Final Run</option>
         </select>
 
-        <!-- AI Solver: Follow Lab MD instructions checkbox -->
+        <!-- AI Solver: Follow Lab MD instructions or Solve Challenge Requirements checkbox -->
         <div style="margin-bottom: 14px; padding: 10px 12px; background: rgba(139, 92, 246, 0.08); border: 1px solid #8b5cf6; border-radius: 6px;">
           <label style="display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 12px; color: #c4b5fd; cursor: pointer;">
             <input type="checkbox" id="runFollowLabMdCheckbox" checked>
-            🤖 AI Solver: Read Lab MD & Follow Instructions
+            🤖 AI Solver: Follow Instructions &amp; Solve Challenge Requirements
           </label>
           <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">
-            The AI Agent reads the lab's Markdown instructions, executes all required bash steps on the lab VM, and then tests the grader.
+            Reads step-by-step Lab MD instructions <em>or</em> automatically synthesizes solution steps from Challenge Requirements &amp; Grader Test Cases when no guide is provided.
           </div>
         </div>
 
@@ -858,23 +878,31 @@ async function loadLabMdForSelectedLab() {
     appState.currentLabMd = data.lab_md || "";
     appState.currentLabGrade = data.grade || [];
     appState.currentLabVars = data.vars || {};
+    appState.currentSolverMode = data.solver_mode || "guided";
     appState.customGradeJson = null;
 
-    if (infoEl) infoEl.innerHTML = `<span style="color: #4ade80;">Source: ${escapeHtml(data.source)}</span> (${appState.currentLabMd.length} characters)`;
+    const modeBadge = appState.currentSolverMode === "challenge"
+      ? `<span class="badge badge-ai" style="margin-left: 6px; font-size: 10px;">🏆 Challenge Requirements Solver</span>`
+      : `<span class="badge badge-pass" style="margin-left: 6px; font-size: 10px;">📖 Guided Instruction Solver</span>`;
+    if (infoEl) infoEl.innerHTML = `<span style="color: #4ade80;">Source: ${escapeHtml(data.source)}</span> (${appState.currentLabMd.length} chars) ${modeBadge}`;
     if (previewEl) previewEl.textContent = appState.currentLabMd || "(No Lab Markdown available for this lab yet. Click 'Edit MD' to paste one.)";
     if (editorInput) editorInput.value = appState.currentLabMd;
 
     const noteEl = document.getElementById("gitConfigStatusNote");
+    const mdLower = (appState.currentLabMd || "").toLowerCase();
     const hasGit = Boolean(appState.currentLabMd && (
-      appState.currentLabMd.includes("git config") ||
-      appState.currentLabMd.includes("akun git") ||
-      appState.currentLabMd.includes("user.name")
+      mdLower.includes("git config") ||
+      mdLower.includes("akun git") ||
+      mdLower.includes("user.name") ||
+      mdLower.includes("gitlab") ||
+      mdLower.includes("git clone") ||
+      mdLower.includes("git push")
     ));
     if (noteEl) {
       if (hasGit) {
-        noteEl.innerHTML = `<span style="color: #4ade80; font-weight: 600;">Active (git config detected in lab steps)</span>`;
+        noteEl.innerHTML = `<span style="color: #4ade80; font-weight: 600;">Active (Git/GitLab detected in lab)</span>`;
       } else {
-        noteEl.innerHTML = `<span style="color: var(--text-muted);">Inactive (no git config in this lab)</span>`;
+        noteEl.innerHTML = `<span style="color: var(--text-muted);">Inactive (no git steps in this lab)</span>`;
       }
     }
 
@@ -1009,14 +1037,20 @@ async function previewParsedLabSteps() {
   const select = document.getElementById("runLabSelect");
   if (!select) return;
   const labId = select.value;
+  const targetSelect = document.getElementById("runTargetSelect");
+  const targetId = targetSelect ? targetSelect.value : null;
   const logBox = document.getElementById("runProgressBox");
 
-  logBox.innerHTML = `[${new Date().toISOString()}] Parsing instructions from Lab MD for '${select.options[select.selectedIndex].text}'...\n`;
+  logBox.innerHTML = `[${new Date().toISOString()}] Analyzing Lab MD & Requirements for '${select.options[select.selectedIndex].text}'...\n`;
 
+  const mdLower = (appState.currentLabMd || "").toLowerCase();
   const labUsesGit = Boolean(appState.currentLabMd && (
-    appState.currentLabMd.includes("git config") ||
-    appState.currentLabMd.includes("akun git") ||
-    appState.currentLabMd.includes("user.name")
+    mdLower.includes("git config") ||
+    mdLower.includes("akun git") ||
+    mdLower.includes("user.name") ||
+    mdLower.includes("gitlab") ||
+    mdLower.includes("git clone") ||
+    mdLower.includes("git push")
   ));
 
   const gitUserInput = document.getElementById("runGitUserInput");
@@ -1030,14 +1064,20 @@ async function previewParsedLabSteps() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         lab_md: appState.currentLabMd,
+        custom_grade: appState.customGradeJson || appState.currentLabGrade,
+        target_id: targetId,
         git_username: labUsesGit ? (gitUsername || null) : null,
         git_email: labUsesGit ? (gitEmail || null) : null
       })
     });
     const data = await res.json();
-    logBox.innerHTML += `\n========================================\n📖 AI INSTRUCTION PARSER PREVIEW\nTotal Steps Extracted: ${data.total_steps}\n========================================\n`;
+    const isChallenge = data.solver_mode === "challenge";
+    const headerTitle = isChallenge
+      ? "🏆 AI CHALLENGE REQUIREMENTS SOLVER PREVIEW"
+      : "📖 AI GUIDED INSTRUCTION PARSER PREVIEW";
+    logBox.innerHTML += `\n========================================\n${headerTitle}\nSolver Mode: ${isChallenge ? 'Challenge Mode (Synthesized from Requirements & Grader Cases)' : 'Guided Mode (Step-by-Step Markdown Commands)'}\nTotal Steps Extracted: ${data.total_steps}\n========================================\n`;
     if (data.steps.length === 0) {
-      logBox.innerHTML += `No executable code blocks ($ command) found in this Lab MD.\n`;
+      logBox.innerHTML += `No executable commands or requirements found in this Lab.\n`;
     } else {
       data.steps.forEach((s) => {
         logBox.innerHTML += `<span style="color: #60a5fa; font-weight: 700;">Step ${s.step}:</span> <code style="color: #f1f5f9;">${escapeHtml(s.raw_cmd)}</code>\n   <span style="color: #64748b; font-size: 11px;">(Working dir: ${s.working_dir} &rarr; ${escapeHtml(s.cmd)})</span>\n`;
@@ -1096,11 +1136,15 @@ async function executeGradingRun() {
   if (gitUsername) localStorage.setItem("gitUsername", gitUsername);
   if (gitEmail) localStorage.setItem("gitEmail", gitEmail);
 
-  // Check if current lab md contains git config steps
+  // Check if current lab md contains git/gitlab steps
+  const mdLower = (appState.currentLabMd || "").toLowerCase();
   const labUsesGit = Boolean(appState.currentLabMd && (
-    appState.currentLabMd.includes("git config") ||
-    appState.currentLabMd.includes("akun git") ||
-    appState.currentLabMd.includes("user.name")
+    mdLower.includes("git config") ||
+    mdLower.includes("akun git") ||
+    mdLower.includes("user.name") ||
+    mdLower.includes("gitlab") ||
+    mdLower.includes("git clone") ||
+    mdLower.includes("git push")
   ));
 
   const varsObj = {};
@@ -1224,17 +1268,26 @@ async function executeGradingRun() {
       logBox.scrollTop = logBox.scrollHeight;
     });
 
-    // AI Lab MD Instruction SSE listeners
+    // AI Lab MD Instruction / Challenge Solver SSE listeners
     sse.addEventListener("ai_md_reading", (e) => {
       const p = JSON.parse(e.data);
-      logBox.innerHTML += `<span style="color: #c084fc; font-weight: 700;">📖 [AI AGENT] Reading Lab MD: "${escapeHtml(p.description)}" (${p.md_chars} chars)...</span>\n`;
+      const isChallenge = p.solver_mode === "challenge";
+      const icon = isChallenge ? "🏆" : "📖";
+      const actionLabel = isChallenge
+        ? "Analyzing Challenge Requirements & Grader Cases"
+        : "Reading Lab MD Instructions";
+      logBox.innerHTML += `<span style="color: #c084fc; font-weight: 700;">${icon} [AI AGENT] ${actionLabel}: "${escapeHtml(p.description)}" (${p.md_chars} chars)...</span>\n`;
       logBox.scrollTop = logBox.scrollHeight;
     });
 
     sse.addEventListener("ai_instructions_parsed", (e) => {
       const p = JSON.parse(e.data);
       appState.totalAiSteps = p.total_steps;
-      logBox.innerHTML += `<span style="color: #38bdf8; font-weight: 700;">📋 [AI AGENT] Extracted ${p.total_steps} instruction steps from Lab MD</span>\n<span style="color: #fbbf24; font-weight: 600;">⚡ [AI AGENT] Following instructions on target lab VM...</span>\n`;
+      const isChallenge = p.solver_mode === "challenge";
+      const msgLabel = isChallenge
+        ? `Synthesized ${p.total_steps} solution steps from Challenge Requirements & Grader Checks`
+        : `Extracted ${p.total_steps} instruction steps from Lab MD`;
+      logBox.innerHTML += `<span style="color: #38bdf8; font-weight: 700;">📋 [AI AGENT] ${msgLabel}</span>\n<span style="color: #fbbf24; font-weight: 600;">⚡ [AI AGENT] Executing solution steps on target lab VM...</span>\n`;
       logBox.scrollTop = logBox.scrollHeight;
     });
 
@@ -2410,6 +2463,14 @@ function closeImportModal() {
   document.getElementById("importModal").style.display = "none";
   selectedZipBase64 = null;
   selectedGradeJsonContent = null;
+  const zipInput = document.getElementById("importZipFileInput");
+  if (zipInput) zipInput.value = "";
+  const gradeInput = document.getElementById("importGradeFileInput");
+  if (gradeInput) gradeInput.value = "";
+  const gradeText = document.getElementById("importGradeJsonText");
+  if (gradeText) gradeText.value = "";
+  const zipLabel = document.getElementById("zipSelectedLabel");
+  if (zipLabel) zipLabel.textContent = "";
 }
 
 function handleZipFileSelect(e) {
@@ -2417,16 +2478,11 @@ function handleZipFileSelect(e) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = (event) => {
-    // ArrayBuffer to base64
-    const bytes = new Uint8Array(event.target.result);
-    let binary = "";
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    selectedZipBase64 = btoa(binary);
-    document.getElementById("zipSelectedLabel").textContent = `✓ Selected: ${file.name} (${Math.round(file.size / 1024)} KB)`;
+    const dataUrl = String(event.target.result || "");
+    selectedZipBase64 = dataUrl.includes(",") ? dataUrl.split(",", 2)[1] : dataUrl;
+    document.getElementById("zipSelectedLabel").textContent = `✓ Selected: ${file.name} (${Math.round(file.size / 1024)} KB) — Only Lab sections will be imported`;
   };
-  reader.readAsArrayBuffer(file);
+  reader.readAsDataURL(file);
 }
 
 function handleGradeFileSelect(e) {
@@ -2440,6 +2496,27 @@ function handleGradeFileSelect(e) {
   reader.readAsText(file);
 }
 
+async function applyImportedCourseState(data) {
+  const importedSlug = data.course_slug || data.course;
+  if (importedSlug) {
+    appState.selectedCourse = importedSlug;
+    localStorage.setItem("selectedCourse", importedSlug);
+  }
+  await refreshCourseDropdown();
+  if (appState.selectedCourse) {
+    try {
+      const res = await fetch(`${API_BASE}/courses/${encodeURIComponent(appState.selectedCourse)}/labs`);
+      if (res.ok) {
+        const labsData = await res.json();
+        appState.labs = Array.isArray(labsData) ? labsData : [];
+      }
+    } catch (e) {
+      console.error("Failed to refresh labs after import", e);
+    }
+  }
+  renderActiveView(appState.activeView);
+}
+
 async function loadSamplePackage(sampleName) {
   try {
     const res = await fetch(`${API_BASE}/imports/package`, {
@@ -2449,18 +2526,14 @@ async function loadSamplePackage(sampleName) {
         "X-User-Role": appState.userRole,
         "X-User-Id": appState.userId
       },
-      body: JSON.stringify({
-        zip_path: "C:\\Users\\afif\\.gemini\\antigravity\\scratch\\export-gitlab-fundamental.zip",
-        grade_path: "C:\\Users\\afif\\.gemini\\antigravity\\scratch\\grade_export.json"
-      })
+      body: JSON.stringify({ sample: sampleName })
     });
     const data = await res.json();
     if (res.ok && data.status === "success") {
-      showToast(`Imported Package: ${data.course_title} (${data.modules_imported} Modules, ${data.submodules_imported} Submodules)`);
+      const labsCount = data.labs_imported !== undefined ? data.labs_imported : (data.total || 0);
+      showToast(`Imported ${data.course_title}: ${labsCount} Labs loaded`);
       closeImportModal();
-      await refreshCourseDropdown();
-      appState.selectedCourse = data.course_slug;
-      renderCourses();
+      await applyImportedCourseState(data);
     } else {
       alert(`Load failed: ${data.message || data.error}`);
     }
@@ -2503,11 +2576,10 @@ async function submitPackageImport() {
     const data = await res.json();
 
     if (res.ok && data.status === "success") {
-      showToast(`Imported: ${data.course_title || data.course}`);
+      const labsCount = data.labs_imported !== undefined ? data.labs_imported : (data.total || 0);
+      showToast(`Imported ${data.course_title || data.course}: ${labsCount} Labs loaded`);
       closeImportModal();
-      await refreshCourseDropdown();
-      if (data.course_slug) appState.selectedCourse = data.course_slug;
-      renderCourses();
+      await applyImportedCourseState(data);
     } else {
       alert(`Import error: ${data.message || data.error || 'Server error'}`);
     }
@@ -2527,8 +2599,7 @@ async function loadSampleImport(sampleName) {
     if (res.ok) {
       showToast(`Sample imported: ${data.sample}`);
       closeImportModal();
-      await refreshCourseDropdown();
-      renderCourses();
+      await applyImportedCourseState(data.details || { course_slug: data.sample });
     } else {
       alert(`Load failed: ${data.error}`);
     }

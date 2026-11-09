@@ -26,7 +26,12 @@ from .reports import (
     generate_junit_xml
 )
 from .seed_data import load_seed_data
-from .ai_agent import run_grading_remediation_agent, run_course_update_agent, resolve_lab_markdown, extract_instructions_from_lab_md, resolve_nusactl_grade_slug, synthesize_cases_from_lab_md
+from .ai_agent import (
+    run_grading_remediation_agent, run_course_update_agent,
+    resolve_lab_markdown, extract_instructions_from_lab_md,
+    resolve_nusactl_grade_slug, synthesize_cases_from_lab_md,
+    is_challenge_lab
+)
 
 # Global event queues for SSE per run_id
 RUN_EVENT_QUEUES = {}
@@ -269,14 +274,19 @@ class AppRequestHandler(BaseHTTPRequestHandler):
             default_slug = None
             grade_cases = []
             lab_vars = {}
+            lab_dict = {}
             if lab_row:
+                lab_dict = dict(lab_row)
                 c.execute("SELECT slug FROM courses WHERE id = ?", (lab_row["course_id"],))
                 c_row = c.fetchone()
                 c_slug = c_row["slug"] if c_row else lab_row["course_id"]
-                default_slug = resolve_nusactl_grade_slug(dict(lab_row), course_slug=c_slug, lab_md=md)
+                default_slug = resolve_nusactl_grade_slug(lab_dict, course_slug=c_slug, lab_md=md)
                 lab_vars = json.loads(lab_row["vars_json"] or "{}")
                 c.execute("SELECT * FROM grade_cases WHERE lab_id = ? ORDER BY case_index", (lab_row["id"],))
                 grade_cases = [dict(r) for r in c.fetchall()]
+                lab_dict["vars"] = lab_vars
+                lab_dict["grade"] = grade_cases
+            solver_mode = "challenge" if is_challenge_lab(md or "", lab=lab_dict) else "guided"
             conn.close()
             self._send_json({
                 "lab_id": lab_id,
@@ -284,7 +294,8 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                 "source": source,
                 "default_grade_slug": default_slug,
                 "vars": lab_vars,
-                "grade": grade_cases
+                "grade": grade_cases,
+                "solver_mode": solver_mode
             })
             return
 
@@ -545,7 +556,23 @@ class AppRequestHandler(BaseHTTPRequestHandler):
             grade_json = body.get("grade_json")
             grade_path = body.get("grade_path")
 
-            zip_input = zip_path if (zip_path and os.path.exists(zip_path)) else zip_b64
+            scratch_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            scratch_parent = os.path.dirname(scratch_dir)
+
+            zip_input = None
+            if zip_path and os.path.exists(zip_path):
+                zip_input = zip_path
+            elif zip_b64:
+                zip_input = zip_b64
+            else:
+                for candidate_zip in [
+                    os.path.join(scratch_dir, "export-gitlab-fundamental.zip"),
+                    os.path.join(scratch_parent, "export-gitlab-fundamental.zip")
+                ]:
+                    if os.path.exists(candidate_zip):
+                        zip_input = candidate_zip
+                        break
+
             grade_input = grade_json
             if grade_path and os.path.exists(grade_path):
                 with open(grade_path, "r", encoding="utf-8") as gf:
@@ -690,6 +717,7 @@ class AppRequestHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/v1/labs/") and path.endswith("/parse-md"):
             lab_id = path.split("/")[4]
             custom_md = body.get("lab_md")
+            custom_grade = body.get("custom_grade")
             git_user = body.get("git_username")
             git_email = body.get("git_email")
             target_id = body.get("target_id")
@@ -704,13 +732,31 @@ class AppRequestHandler(BaseHTTPRequestHandler):
                 t_row = c.fetchone()
                 if t_row:
                     target_dict = dict(t_row)
-            if custom_md:
+
+            lab_dict = {"id": lab_id}
+            c.execute("SELECT * FROM labs WHERE id = ? OR export_id = ?", (lab_id, lab_id))
+            l_row = c.fetchone()
+            if l_row:
+                lab_dict = dict(l_row)
+                lab_dict["vars"] = json.loads(l_row["vars_json"] or "{}")
+                c.execute("SELECT * FROM grade_cases WHERE lab_id = ? ORDER BY case_index", (l_row["id"],))
+                lab_dict["grade"] = [dict(r) for r in c.fetchall()]
+            if isinstance(custom_grade, list) and custom_grade:
+                lab_dict["grade"] = custom_grade
+
+            if custom_md is not None and str(custom_md).strip():
                 lab_md = custom_md
             else:
                 lab_md, _ = resolve_lab_markdown(lab_id)
-            steps = extract_instructions_from_lab_md(lab_md, target=target_dict, env_vars=env_vars)
+            solver_mode = "challenge" if is_challenge_lab(lab_md or "", lab=lab_dict) else "guided"
+            steps = extract_instructions_from_lab_md(lab_md or "", target=target_dict, env_vars=env_vars, lab=lab_dict)
             conn.close()
-            self._send_json({"lab_id": lab_id, "total_steps": len(steps), "steps": steps})
+            self._send_json({
+                "lab_id": lab_id,
+                "solver_mode": solver_mode,
+                "total_steps": len(steps),
+                "steps": steps
+            })
             return
 
         # Start a grading run

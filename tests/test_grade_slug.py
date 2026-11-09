@@ -295,5 +295,153 @@ $ echo "Hello" > README.md
             "case 2 - Custom Dynamic Check Beta"
         ])
 
+    def test_challenge_lab_requirements_solver(self):
+        """Verify that a Challenge Lab without step-by-step instructions is solved from Requirements."""
+        from backend.ai_agent import is_challenge_lab, extract_instructions_from_lab_md, synthesize_cases_from_lab_md
+
+        challenge_md = """
+### Persiapan
+```console
+$ nusactl login
+$ nusactl start glpc-009-5
+```
+
+### Challenge
+Pada lab ini Anda diminta membangun alur kerja rilis aplikasi secara end-to-end menggunakan Git dan GitLab tanpa panduan langkah demi langkah.
+
+### Challenge Requirements
+Repository harus memiliki remote bernama:
+```
+origin
+```
+dan terhubung ke repository GitLab dengan nama proyek:
+```
+GitLab-<mark style="background-color:yellow;">username</mark>-Challenge
+```
+Struktur awal proyek pada branch `main` harus memiliki file berikut:
+```
+index.html
+app.js
+README.md
+VERSION
+```
+Isi file `VERSION` dengan nilai awal:
+```
+0.1.0
+```
+Pastikan file `index.html` memiliki judul halaman:
+```
+GitLab Release Challenge
+```
+dan sebuah elemen dengan id:
+```
+status
+```
+Selain itu tampilkan identitas pembuat aplikasi dengan format:
+```
+Created by <mark style="background-color:yellow;">username</mark>
+```
+
+### Development Requirements
+Buat branch kerja baru bernama:
+```
+development
+```
+Perbarui aplikasi sehingga teks yang ditampilkan pada elemen `status` menjadi:
+```
+Application Running - Development Mode
+```
+
+### Release Development Requirements
+Buat branch fitur baru dari `development` untuk menyiapkan perubahan menuju versi rilis `1.0.0`.
+Perbarui logika aplikasi pada `app.js` sehingga menampilkan teks:
+```
+Application Version 1.0.0 Ready
+```
+Perbarui file `VERSION` menjadi:
+```
+1.0.0
+```
+
+### CI/CD Requirements
+Tambahkan file konfigurasi pipeline:
+```
+.gitlab-ci.yml
+```
+Pipeline harus memiliki dua stage:
+```
+test
+release
+```
+Tambahkan juga file `.gitignore` yang mengabaikan:
+```
+node_modules/
+.env
+*.log
+```
+
+### Release Requirements
+Gabungkan perubahan dari `development` ke branch `main` menggunakan **merge commit** (bukan fast-forward).
+Buat **annotated tag** dengan nama:
+```
+v1.0.0
+```
+dan pesan tag:
+```
+Release version 1.0.0
+```
+Pastikan seluruh perubahan telah dipush ke repository GitLab.
+"""
+        target = {"nusactl_username": "afifr", "user": "ubuntu"}
+        self.assertTrue(is_challenge_lab(challenge_md))
+
+        steps = extract_instructions_from_lab_md(challenge_md, target=target)
+        self.assertTrue(len(steps) >= 8)
+        raw_cmds = "\n".join(s["raw_cmd"] for s in steps)
+
+        # Must NOT contain standalone non-command value lines as raw commands
+        for invalid_cmd in ["origin", "index.html", "0.1.0", "1.0.0", "v1.0.0"]:
+            self.assertNotIn(invalid_cmd, [s["raw_cmd"].strip() for s in steps])
+
+        # Must synthesize the required files, branches, merge --no-ff, and annotated tag v1.0.0
+        self.assertIn("GitLab-afifr-Challenge", raw_cmds)
+        self.assertIn("Created by afifr", raw_cmds)
+        self.assertIn("Application Running - Development Mode", raw_cmds)
+        self.assertIn("Application Version 1.0.0 Ready", raw_cmds)
+        self.assertIn(".gitlab-ci.yml", raw_cmds)
+        self.assertIn(".gitignore", raw_cmds)
+        self.assertIn("git merge --no-ff", raw_cmds)
+        self.assertIn("git tag -f -a v1.0.0 -m \"Release version 1.0.0\"", raw_cmds)
+
+        cases = synthesize_cases_from_lab_md(challenge_md, target=target)
+        self.assertTrue(len(cases) >= 7)
+
+    def test_challenge_lab_from_grader_cases_only(self):
+        """Verify that AI Solver can synthesize solution steps directly from Grader Test Cases when no MD guide exists."""
+        from backend.ai_agent import extract_instructions_from_lab_md
+        lab = {
+            "id": "challenge-custom-01",
+            "description": "Lab Challenge - Custom Grader Driven",
+            "grade": [
+                {
+                    "case_index": 1,
+                    "name": "Check directory /home/ubuntu/app-challenge exists",
+                    "cmd": "test -d /home/ubuntu/app-challenge && echo PASS || echo FAIL",
+                    "expect": "PASS"
+                },
+                {
+                    "case_index": 2,
+                    "name": "Check VERSION file is 2.0.0",
+                    "cmd": "grep -q '2.0.0' /home/ubuntu/app-challenge/VERSION && echo PASS || echo FAIL",
+                    "expect": "PASS"
+                }
+            ]
+        }
+        steps = extract_instructions_from_lab_md("", target={"user": "ubuntu"}, lab=lab)
+        self.assertTrue(len(steps) >= 2)
+        combined = "\n".join(s["raw_cmd"] for s in steps)
+        self.assertIn("/home/ubuntu/app-challenge", combined)
+        self.assertIn("2.0.0", combined)
+
 if __name__ == "__main__":
     unittest.main()

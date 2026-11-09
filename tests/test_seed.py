@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.database import init_db, get_connection
 from backend.seed_data import load_seed_data, DOK8S_SEED_LABS
-from backend.importer import import_course_export, export_patched_course
+from backend.importer import import_course_export, export_patched_course, import_course_zip_and_grading
 from backend.lint_engine import lint_lab
 from backend.run_engine import compute_verdict, redact_text
 
@@ -154,6 +154,71 @@ class TestDashboardBaseline(unittest.TestCase):
 
         # Empty stdout -> ERROR
         self.assertEqual(compute_verdict(0, "", "", "1"), "ERROR")
+
+    def test_06_zip_import_extracts_only_labs(self):
+        """Importing a Course ZIP extracts and stores ONLY Lab sections into the labs table."""
+        import io
+        import zipfile
+
+        sample_course_json = {
+            "title": "Sample Zip Course",
+            "slug": "sample-zip-course",
+            "modules": [
+                {
+                    "id": 100,
+                    "title": "Module 1 - Intro",
+                    "order": 1,
+                    "sections": [
+                        {"id": 1001, "title": "Pengenalan Materi", "order": 1, "is_task": False, "is_quiz": False, "type_section": 1, "content_md": "Materi teori"},
+                        {"id": 1002, "title": "Kuis 1", "order": 2, "is_task": False, "is_quiz": True, "type_section": 4, "content_md": "Kuis"}
+                    ]
+                },
+                {
+                    "id": 200,
+                    "title": "Module 2 - Praktik",
+                    "order": 2,
+                    "sections": [
+                        {"id": 2001, "title": "Teori Dasar", "order": 1, "is_task": False, "is_quiz": False, "type_section": 1, "content_md": "Teori"},
+                        {"id": 2002, "title": "Lab 2.1 - Setup Repository", "slug": "szc-002-1", "order": 2, "is_task": True, "is_quiz": False, "type_section": 5, "content_md": "```console\n$ git init\n```"},
+                        {"id": 2003, "title": "Lab 2.2 - Branching", "slug": "szc-002-2", "order": 3, "is_task": True, "is_quiz": False, "type_section": 5, "content_md": "```console\n$ git checkout -b dev\n```"},
+                        {"id": 2004, "title": "Kuis 2", "order": 4, "is_task": False, "is_quiz": True, "type_section": 4, "content_md": "Kuis 2"}
+                    ]
+                }
+            ]
+        }
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("export-sample/export-sample.json", json.dumps(sample_course_json))
+
+        res = import_course_zip_and_grading(buf.getvalue())
+        self.assertEqual(res["status"], "success")
+        self.assertEqual(res["course_slug"], "sample-zip-course")
+        self.assertEqual(res["labs_imported"], 2)
+        self.assertEqual(res["modules_imported"], 1)
+        self.assertEqual(res["submodules_imported"], 2)
+        self.assertEqual(res["quizzes_imported"], 0)
+
+        conn = get_connection()
+        c = conn.cursor()
+        c.execute("SELECT id FROM courses WHERE slug = 'sample-zip-course'")
+        cid = c.fetchone()["id"]
+        c.execute("SELECT chapter, part, slug, description, lab_md FROM labs WHERE course_id = ? ORDER BY chapter, part", (cid,))
+        db_labs = [dict(r) for r in c.fetchall()]
+        self.assertEqual(len(db_labs), 2)
+        self.assertEqual(db_labs[0]["slug"], "szc-002-1")
+        self.assertEqual(db_labs[0]["description"], "Lab 2.1 - Setup Repository")
+        self.assertIn("git init", db_labs[0]["lab_md"])
+        self.assertEqual(db_labs[1]["slug"], "szc-002-2")
+
+        # Cleanup test course
+        c.execute("DELETE FROM grade_cases WHERE lab_id IN (SELECT id FROM labs WHERE course_id = ?)", (cid,))
+        c.execute("DELETE FROM labs WHERE course_id = ?", (cid,))
+        c.execute("DELETE FROM submodules WHERE module_id IN (SELECT id FROM modules WHERE course_id = ?)", (cid,))
+        c.execute("DELETE FROM modules WHERE course_id = ?", (cid,))
+        c.execute("DELETE FROM courses WHERE id = ?", (cid,))
+        conn.commit()
+        conn.close()
 
 if __name__ == "__main__":
     unittest.main()
