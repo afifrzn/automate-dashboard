@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html class="h-full dark" data-theme="dark" data-theme-mode="dark" dir="ltr" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no"/>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+  <meta http-equiv="Pragma" content="no-cache"/>
+  <meta http-equiv="Expires" content="0"/>
+  <title>Reports & Exports — Dashboard App</title>
+
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/media/app/favicon-32x32.png"/>
+  <link rel="shortcut icon" href="assets/media/app/favicon.ico"/>
+
+  <!-- Inter Typography Font -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"/>
+
+  <!-- Metronic 9 Icons & Stylesheets (prebuilt, zero-build) -->
+  <link rel="stylesheet" href="assets/vendors/keenicons/styles.bundle.css"/>
+  <link rel="stylesheet" href="assets/css/styles.css"/>
+  <link rel="stylesheet" href="style.css?v=20261110_02"/>
+</head>
+<!-- NOTE: Never add Metronic's .demo1 / .sidebar-fixed / .header-fixed to <body> (see AGENTS.md "Flying Navbar" rule). -->
+<body data-page-view="reports" class="antialiased h-full text-base text-gray-700 bg-[--tw-page-bg] dark:bg-[--tw-page-bg-dark] [--tw-page-bg:#fefefe] [--tw-page-bg-dark:var(--tw-coal-500)]">
+
+  <!-- Master App Container (Solid Flexbox Structure) -->
+  <div class="app-container">
+
+    <!-- 1. Left Sidebar (Fixed 250px Width) — Metronic menu component -->
+    <aside class="app-sidebar bg-light dark:bg-coal-600 border-e border-e-gray-200 dark:border-e-coal-100" id="sidebar">
+      <div class="flex flex-col grow min-h-0">
+        <!-- Sidebar Brand Header -->
+        <div class="sidebar-brand">
+          <div class="brand-icon">
+            <i class="ki-filled ki-abstract-26 text-2xl"></i>
+          </div>
+          <div class="brand-text">
+            <span class="brand-title text-gray-900">Dashboard App</span>
+            <span class="brand-badge text-primary">Metronic v9.1</span>
+          </div>
+        </div>
+
+        <!-- Sidebar Navigation Menu (4 Core Modules — Multi-Page Navigation) -->
+        <div class="scrollable-y-auto grow px-3 py-4">
+          <div class="menu flex flex-col gap-0.5" data-menu="true" id="sidebar_menu">
+            <div class="menu-item pb-1">
+              <span class="menu-heading uppercase text-2sm font-medium text-gray-500 ps-[10px] pe-[10px]">Core Modules</span>
+            </div>
+
+            <div class="menu-item nav-tab" data-view="runs">
+              <a class="menu-link border border-transparent items-center grow menu-item-active:bg-secondary-active dark:menu-item-active:bg-coal-300 dark:menu-item-active:border-gray-100 menu-item-active:rounded-lg hover:bg-secondary-active dark:hover:bg-coal-300 dark:hover:border-gray-100 hover:rounded-lg gap-[10px] ps-[10px] pe-[10px] py-[8px] cursor-pointer" href="runs.html" tabindex="0">
+                <span class="menu-icon items-start text-gray-500 dark:text-gray-400 w-[20px]"><i class="ki-filled ki-rocket text-lg"></i></span>
+                <span class="menu-title text-sm font-medium text-gray-800 menu-item-active:text-primary menu-link-hover:!text-primary">Run Console</span>
+              </a>
+            </div>
+
+            <div class="menu-item nav-tab" data-view="courses">
+              <a class="menu-link border border-transparent items-center grow menu-item-active:bg-secondary-active dark:menu-item-active:bg-coal-300 dark:menu-item-active:border-gray-100 menu-item-active:rounded-lg hover:bg-secondary-active dark:hover:bg-coal-300 dark:hover:border-gray-100 hover:rounded-lg gap-[10px] ps-[10px] pe-[10px] py-[8px] cursor-pointer" href="courses.html" tabindex="0">
+                <span class="menu-icon items-start text-gray-500 dark:text-gray-400 w-[20px]"><i class="ki-filled ki-book-open text-lg"></i></span>
+                <span class="menu-title text-sm font-medium text-gray-800 menu-item-active:text-primary menu-link-hover:!text-primary">Courses Explorer</span>
+              </a>
+            </div>
+
+            <div class="menu-item nav-tab" data-view="vms">
+              <a class="menu-link border border-transparent items-center grow menu-item-active:bg-secondary-active dark:menu-item-active:bg-coal-300 dark:menu-item-active:border-gray-100 menu-item-active:rounded-lg hover:bg-secondary-active dark:hover:bg-coal-300 dark:hover:border-gray-100 hover:rounded-lg gap-[10px] ps-[10px] pe-[10px] py-[8px] cursor-pointer" href="vms.html" tabindex="0">
+                <span class="menu-icon items-start text-gray-500 dark:text-gray-400 w-[20px]"><i class="ki-filled ki-data text-lg"></i></span>
+                <span class="menu-title text-sm font-medium text-gray-800 menu-item-active:text-primary menu-link-hover:!text-primary">Test VMs &amp; Credentials</span>
+              </a>
+            </div>
+
+            <div class="menu-item nav-tab active" data-view="reports">
+              <a class="menu-link border border-transparent items-center grow menu-item-active:bg-secondary-active dark:menu-item-active:bg-coal-300 dark:menu-item-active:border-gray-100 menu-item-active:rounded-lg hover:bg-secondary-active dark:hover:bg-coal-300 dark:hover:border-gray-100 hover:rounded-lg gap-[10px] ps-[10px] pe-[10px] py-[8px] cursor-pointer" href="reports.html" tabindex="0">
+                <span class="menu-icon items-start text-gray-500 dark:text-gray-400 w-[20px]"><i class="ki-filled ki-chart-line text-lg"></i></span>
+                <span class="menu-title text-sm font-medium text-gray-800 menu-item-active:text-primary menu-link-hover:!text-primary">Reports &amp; Exports</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sidebar Status Footer -->
+      <div class="sidebar-footer border-t border-t-gray-200 dark:border-t-coal-100">
+        <div class="status-row">
+          <span class="status-label text-gray-500">Backend:</span>
+          <span class="badge badge-sm badge-success badge-outline">Online :8080</span>
+        </div>
+        <div class="status-row">
+          <span class="status-label text-gray-500">Active Role:</span>
+          <span class="badge badge-sm badge-outline">Operator</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Mobile Sidebar Backdrop -->
+    <div class="app-sidebar-backdrop" id="sidebarBackdrop" onclick="closeMobileSidebar()"></div>
+
+    <!-- 2. Right Main Area (Takes Remaining Width) -->
+    <div class="app-main">
+
+      <!-- Top Sticky Navbar (Never Overlaps, Never Flies) -->
+      <header class="app-navbar bg-[--tw-page-bg] dark:bg-[--tw-page-bg-dark] border-b border-b-gray-200 dark:border-b-coal-100" id="header">
+
+        <!-- Left: Breadcrumb & Mobile Button -->
+        <div class="navbar-left">
+          <button id="mobileSidebarToggleBtn" class="mobile-toggle-btn btn btn-icon btn-light btn-sm" title="Toggle Menu">
+            <i class="ki-filled ki-burger-menu-2"></i>
+          </button>
+          <div class="breadcrumb-group">
+            <span id="activeViewBreadcrumb" class="breadcrumb-active text-gray-900">Reports &amp; Exports</span>
+            <span class="breadcrumb-sep text-gray-400">/</span>
+            <span class="breadcrumb-sub text-gray-600">Grading Test &amp; Course Working Surface</span>
+          </div>
+        </div>
+
+        <!-- Right: Controls -->
+        <div class="navbar-right">
+          <!-- Course Selector -->
+          <div class="course-picker">
+            <label for="courseSelect" class="form-label text-gray-600 uppercase">Course:</label>
+            <select id="courseSelect" class="select select-sm">
+              <option value="">Loading courses...</option>
+            </select>
+          </div>
+
+          <!-- Theme Toggle Button -->
+          <button id="themeToggleBtn" class="theme-toggle-btn btn btn-icon btn-light btn-sm" title="Toggle Light/Dark Theme">
+            <i class="ki-filled ki-moon dark:hidden"></i>
+            <i class="ki-filled ki-sun hidden dark:inline-flex"></i>
+          </button>
+
+          <!-- Hidden compatibility controls -->
+          <div style="display: none;">
+            <input type="text" id="globalSearch">
+            <select id="contentLangSelect"><option value="id" selected>Indonesian (id)</option></select>
+            <select id="uiLangSelect"><option value="en" selected>English</option></select>
+            <select id="userRoleSelect"><option value="Operator" selected>Operator</option></select>
+          </div>
+        </div>
+      </header>
+
+      <!-- 3. Main Content Canvas -->
+      <main class="app-content-body" id="content">
+        <!-- View Containers -->
+        <section id="view-runs" class="view-panel" style="display: none;"></section>
+        <section id="view-courses" class="view-panel" style="display: none;"></section>
+        <section id="view-vms" class="view-panel" style="display: none;"></section>
+        <section id="view-reports" class="view-panel"></section>
+        <section id="view-overview" class="view-panel" style="display: none;"></section>
+        <section id="view-validation" class="view-panel" style="display: none;"></section>
+        <section id="view-crosscheck" class="view-panel" style="display: none;"></section>
+        <section id="view-findings" class="view-panel" style="display: none;"></section>
+        <section id="view-audit" class="view-panel" style="display: none;"></section>
+        <section id="view-manifest" class="view-panel" style="display: none;"></section>
+        <section id="view-quizzes" class="view-panel" style="display: none;"></section>
+        <section id="view-settings" class="view-panel" style="display: none;"></section>
+      </main>
+
+    </div>
+  </div>
+
+  <!-- Case Drawer (Section 7.5) — right-side panel using Metronic card tokens -->
+  <div id="caseDrawer" class="case-drawer bg-light dark:bg-coal-600 border-s border-s-gray-200 dark:border-s-coal-100" style="display: none;">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-b-gray-200 dark:border-b-coal-100 shrink-0">
+      <h3 id="drawerCaseTitle" class="text-base font-semibold text-gray-900">Case Details</h3>
+      <button class="btn btn-sm btn-icon btn-light btn-clear" onclick="closeCaseDrawer()" title="Close"><i class="ki-filled ki-cross"></i></button>
+    </div>
+    <div id="drawerContent" class="p-5 grow overflow-y-auto"></div>
+  </div>
+
+  <!-- Run Gate Modal (Section 10.4) -->
+  <div id="gateModal" class="modal" data-modal="true">
+    <div class="modal-content max-w-[600px] top-[10%]">
+      <div class="modal-header">
+        <h3 class="modal-title text-danger">⚠️ Operator Approval Required: State-Changing Gate</h3>
+        <button class="btn btn-xs btn-icon btn-light" onclick="closeGateModal()"><i class="ki-filled ki-cross"></i></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2.5 text-gray-700">
+          The grading run paused in <code>awaiting_gate</code>. The following commands change lab VM state (kind: <strong id="gateKind"></strong>):
+        </p>
+        <pre class="code-block mb-4 text-danger" id="gateCommands"></pre>
+        <div id="gateNotes" class="text-xs text-gray-500 mb-4"></div>
+        <div class="flex justify-end gap-2.5">
+          <button class="btn btn-light" onclick="decideGate('deny')">Deny (Skip Steps)</button>
+          <button class="btn btn-danger" onclick="decideGate('approve')">Approve &amp; Execute (Operator Role)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create New Lab Modal -->
+  <div id="newLabModal" class="modal" data-modal="true">
+    <div class="modal-content max-w-[650px] top-[5%]">
+      <div class="modal-header">
+        <h3 class="modal-title">+ Create New Lab</h3>
+        <button class="btn btn-xs btn-icon btn-light" onclick="closeNewLabModal()"><i class="ki-filled ki-cross"></i></button>
+      </div>
+      <div class="modal-body flex flex-col gap-3" style="max-height: 75vh; overflow-y: auto;">
+        <div class="grid grid-cols-2 gap-3">
+          <div class="flex flex-col gap-1">
+            <label class="form-label text-xs uppercase text-gray-500">Chapter (e.g. 004):</label>
+            <input type="text" id="newLabChapter" class="input" placeholder="004">
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="form-label text-xs uppercase text-gray-500">Part (e.g. 1):</label>
+            <input type="text" id="newLabPart" class="input" placeholder="1">
+          </div>
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="form-label text-xs uppercase text-gray-500">Lab Description / Title:</label>
+          <input type="text" id="newLabDescription" class="input" placeholder="Lab 4.1 - Deploying Redis Cluster">
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="form-label text-xs uppercase text-gray-500">Start Commands (one per line, optional):</label>
+          <textarea id="newLabStart" rows="2" class="textarea font-mono text-xs" placeholder="kubectl apply -f /setup/redis-ns.yaml"></textarea>
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="form-label text-xs uppercase text-gray-500">Finish Commands (cleanups, one per line):</label>
+          <textarea id="newLabFinish" rows="2" class="textarea font-mono text-xs" placeholder="kubectl delete namespace redis-cluster --ignore-not-found"></textarea>
+        </div>
+        <div class="border-t border-t-gray-200 dark:border-t-coal-100 pt-3 flex flex-col gap-2">
+          <h4 class="text-xs uppercase text-gray-500 font-semibold">First Grade Case (Initial Check)</h4>
+          <input type="text" id="newCaseName" class="input" placeholder="case 1 - Check redis pod is running">
+          <input type="text" id="newCaseCmd" class="input font-mono text-xs" placeholder="kubectl get pod redis-0 -o jsonpath='{.status.phase}' | grep -qx 'Running' && echo 1 || echo 0">
+          <div class="grid gap-2" style="grid-template-columns: 1fr 2fr;">
+            <input type="text" id="newCaseExpect" class="input" placeholder="Expect: 1" value="1">
+            <input type="text" id="newCaseHint" class="input" placeholder="Hint: Make sure redis-0 pod is Running">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer flex justify-end gap-2.5 px-5 py-4 border-t border-t-gray-200 dark:border-t-coal-100">
+        <button class="btn btn-light" onclick="closeNewLabModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitNewLab()">Save &amp; Register Lab</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import Course & Grading Modal -->
+  <div id="importModal" class="modal" data-modal="true">
+    <div class="modal-content max-w-[680px] top-[5%]">
+      <div class="modal-header">
+        <h3 class="modal-title">📂 Import Course (.zip) &amp; Grading (.json) Package</h3>
+        <button class="btn btn-xs btn-icon btn-light" onclick="closeImportModal()"><i class="ki-filled ki-cross"></i></button>
+      </div>
+
+      <div class="modal-body flex flex-col gap-3.5" style="max-height: 75vh; overflow-y: auto;">
+        <div class="flex gap-2.5">
+          <button class="btn btn-sm btn-outline btn-primary" onclick="loadSamplePackage('gitlab')">
+            ⚡ 1-Click Load: GitLab Fundamental (.zip + .json)
+          </button>
+          <button class="btn btn-sm btn-light" onclick="loadSampleImport('dok8s')">
+            ⚡ Load dok8s Export (.json)
+          </button>
+        </div>
+
+        <div class="card p-3.5">
+          <div class="flex items-center gap-2 mb-1.5">
+            <span class="badge badge-sm badge-outline">1. Course Archive (.zip)</span>
+            <span class="text-xs text-gray-600">Automatically extracts &amp; displays Lab sections only (filters out theory &amp; quizzes)</span>
+          </div>
+          <input type="file" id="importZipFileInput" accept=".zip" onchange="handleZipFileSelect(event)" class="input w-full mb-1.5">
+          <div id="zipSelectedLabel" class="text-xs text-success"></div>
+        </div>
+
+        <div class="card p-3.5">
+          <div class="flex items-center gap-2 mb-1.5">
+            <span class="badge badge-sm badge-outline">2. Grading Export (.json)</span>
+            <span class="text-xs text-gray-600">Contains labs, test cases, check commands, and scripts</span>
+          </div>
+          <input type="file" id="importGradeFileInput" accept=".json" onchange="handleGradeFileSelect(event)" class="input w-full mb-1.5">
+          <textarea id="importGradeJsonText" rows="4" class="textarea font-mono text-xs w-full" placeholder="Or paste grade_export.json text here..."></textarea>
+        </div>
+      </div>
+
+      <div class="modal-footer flex justify-end gap-2.5 px-5 py-4 border-t border-t-gray-200 dark:border-t-coal-100">
+        <button class="btn btn-light" onclick="closeImportModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitPackageImport()">Import Full Package</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Metronic 9 Scripts & Application Logic -->
+  <script src="assets/js/core.bundle.js"></script>
+  <script src="app.js?v=20261110_02"></script>
+</body>
+</html>

@@ -62,10 +62,142 @@ const I18N = {
 
 // Initialize Application
 document.addEventListener("DOMContentLoaded", () => {
+  restoreSavedTheme();
+  const initialView = resolveCurrentPageView();
+  appState.activeView = initialView;
+  activateDomViewPanel(initialView);
   setupNavigation();
   setupGlobalControls();
+  setupMetronicControlEnhancer();
   fetchInitialData();
 });
+
+function restoreSavedTheme() {
+  const saved = localStorage.getItem("theme");
+  const html = document.documentElement;
+  if (saved === "light") {
+    html.classList.remove("dark");
+    html.setAttribute("data-theme", "light");
+    html.setAttribute("data-theme-mode", "light");
+  } else if (saved === "dark") {
+    html.classList.add("dark");
+    html.setAttribute("data-theme", "dark");
+    html.setAttribute("data-theme-mode", "dark");
+  }
+}
+
+function resolveCurrentPageView() {
+  const params = new URLSearchParams(window.location.search);
+  const queryView = params.get("view");
+  if (queryView) return queryView;
+
+  const bodyView = document.body && document.body.getAttribute("data-page-view");
+  if (bodyView) return bodyView;
+
+  const path = (window.location.pathname || "").toLowerCase();
+  if (path.endsWith("/courses") || path.endsWith("/courses.html")) return "courses";
+  if (path.endsWith("/vms") || path.endsWith("/vms.html")) return "vms";
+  if (path.endsWith("/reports") || path.endsWith("/reports.html")) return "reports";
+  if (path.endsWith("/runs") || path.endsWith("/runs.html")) return "runs";
+  return "runs";
+}
+
+function activateDomViewPanel(viewName) {
+  document.querySelectorAll(".view-panel").forEach(panel => {
+    panel.style.display = "none";
+  });
+  const activePanel = document.getElementById(`view-${viewName}`);
+  if (activePanel) {
+    activePanel.style.display = "block";
+  }
+  const tabs = document.querySelectorAll(".nav-tab");
+  tabs.forEach(t => {
+    if (t.getAttribute("data-view") === viewName) {
+      t.classList.add("active");
+    } else {
+      t.classList.remove("active");
+    }
+  });
+  const breadcrumbEl = document.getElementById("activeViewBreadcrumb");
+  if (breadcrumbEl) {
+    const titles = {
+      runs: "Run Console",
+      courses: "Courses Explorer",
+      vms: "Test VMs & Credentials",
+      reports: "Reports & Exports",
+      overview: "Overview",
+      validation: "Validation Matrix",
+      crosscheck: "Cross-Check",
+      findings: "Findings Board",
+      audit: "Course Audit",
+      manifest: "Version Manifest",
+      quizzes: "Quiz Review",
+      settings: "Settings & Activity Log"
+    };
+    breadcrumbEl.textContent = titles[viewName] || viewName;
+  }
+}
+
+// ==================== Metronic Component Helpers ====================
+
+/** Show a Metronic modal (KTModal) by element id, with a class-based fallback. */
+function ktShowModal(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const inst = window.KTModal && (KTModal.getInstance(el) || KTModal.getOrCreateInstance(el));
+  if (inst && typeof inst.show === "function") {
+    inst.show();
+  } else {
+    el.style.display = "block";
+    el.classList.add("open");
+  }
+}
+
+/** Hide a Metronic modal (KTModal) by element id, with a class-based fallback. */
+function ktHideModal(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const inst = window.KTModal && KTModal.getInstance(el);
+  if (inst && typeof inst.hide === "function") {
+    inst.hide();
+  } else {
+    el.classList.remove("open");
+    el.style.display = "none";
+  }
+}
+
+/**
+ * BRIDGE: views not yet migrated to native Metronic markup render raw
+ * <input>/<select>/<textarea>. Give them the Metronic control classes
+ * (.input / .select / .textarea / .checkbox) as they are inserted.
+ */
+function applyMetronicControlClasses(root) {
+  if (!root || !root.querySelectorAll) return;
+  root.querySelectorAll("input, select, textarea").forEach(el => {
+    if (el.dataset.ktEnhanced) return;
+    el.dataset.ktEnhanced = "1";
+    if (el.closest("#sidebar")) return;
+    const tag = el.tagName.toLowerCase();
+    const type = (el.getAttribute("type") || "text").toLowerCase();
+    if (tag === "select") {
+      if (!el.classList.contains("select")) el.classList.add("select", "select-sm");
+    } else if (tag === "textarea") {
+      if (!el.classList.contains("textarea")) el.classList.add("textarea");
+    } else if (type === "checkbox") {
+      if (!el.classList.contains("checkbox")) el.classList.add("checkbox", "checkbox-sm");
+    } else if (["text", "search", "password", "email", "number", "file"].includes(type)) {
+      if (!el.classList.contains("input")) el.classList.add("input");
+    }
+  });
+}
+
+function setupMetronicControlEnhancer() {
+  const content = document.getElementById("content");
+  if (!content) return;
+  applyMetronicControlClasses(content);
+  new MutationObserver(() => applyMetronicControlClasses(content))
+    .observe(content, { childList: true, subtree: true });
+}
 
 function closeMobileSidebar() {
   const sb = document.getElementById("sidebar");
@@ -73,39 +205,40 @@ function closeMobileSidebar() {
 }
 window.closeMobileSidebar = closeMobileSidebar;
 
+const CORE_PAGE_MAP = {
+  runs: "runs.html",
+  courses: "courses.html",
+  vms: "vms.html",
+  reports: "reports.html"
+};
+
 function setupNavigation() {
   const tabs = document.querySelectorAll(".nav-tab");
   tabs.forEach(tab => {
-    tab.addEventListener("click", () => {
-      tabs.forEach(t => t.classList.remove("active"));
-      tab.classList.add("active");
+    tab.addEventListener("click", (e) => {
+      const link = tab.querySelector("a[href]");
       const viewName = tab.getAttribute("data-view");
+      if (link && link.getAttribute("href") && link.getAttribute("href") !== "#") {
+        // Real multi-page navigation via <a href="...">
+        closeMobileSidebar();
+        return;
+      }
+      e.preventDefault();
       switchView(viewName);
       closeMobileSidebar();
     });
   });
 }
 
-function switchView(viewName) {
+function switchView(viewName, extraParams = "") {
+  const currentPageView = document.body && document.body.getAttribute("data-page-view");
+  if (CORE_PAGE_MAP[viewName] && currentPageView && currentPageView !== viewName) {
+    window.location.href = CORE_PAGE_MAP[viewName] + (extraParams ? `?${extraParams}` : "");
+    return;
+  }
   appState.activeView = viewName;
-  document.querySelectorAll(".view-panel").forEach(panel => {
-    panel.style.display = "none";
-  });
-  const activePanel = document.getElementById(`view-${viewName}`);
-  if (activePanel) {
-    activePanel.style.display = "block";
-    renderActiveView(viewName);
-  }
-  const breadcrumbEl = document.getElementById("activeViewBreadcrumb");
-  if (breadcrumbEl) {
-    const titles = {
-      runs: "Run Console",
-      courses: "Courses Explorer",
-      vms: "Test VMs & Credentials",
-      reports: "Reports & Exports"
-    };
-    breadcrumbEl.textContent = titles[viewName] || viewName;
-  }
+  activateDomViewPanel(viewName);
+  renderActiveView(viewName);
 }
 
 function setupGlobalControls() {
@@ -276,22 +409,22 @@ async function renderOverview() {
 
     container.innerHTML = `
       <div class="grid-cards">
-        <div class="card">
+        <div class="card p-5">
           <h3>Total Labs in Course</h3>
           <div class="metric-val">${data.total_labs}</div>
           <div class="metric-sub">${appState.selectedCourse ? appState.selectedCourse.toUpperCase() : 'NO COURSE SELECTED'}</div>
         </div>
-        <div class="card">
+        <div class="card p-5">
           <h3>Open Findings</h3>
           <div class="metric-val" style="color: #ef4444;">${data.open_findings}</div>
           <div class="metric-sub">Critical & High Grader/Course Defects</div>
         </div>
-        <div class="card">
+        <div class="card p-5">
           <h3>Validation Coverage</h3>
           <div class="metric-val" style="color: #4ade80;">3 States</div>
           <div class="metric-sub">Unsolved, Solved, Near-Miss Matrix</div>
         </div>
-        <div class="card">
+        <div class="card p-5">
           <h3>Manifest Freshness</h3>
           <div class="metric-val">${data.manifest_needs_verification == 0 ? "Clean" : data.manifest_needs_verification}</div>
           <div class="metric-sub">${data.manifest_needs_verification} components need source verification</div>
@@ -303,7 +436,7 @@ async function renderOverview() {
         <button class="btn btn-primary" onclick="switchView('runs')">+ Launch New Run</button>
       </div>
 
-      <table class="data-table">
+      <table class="data-table table align-middle text-gray-700 font-medium text-sm">
         <thead>
           <tr>
             <th>Run ID</th>
@@ -321,16 +454,16 @@ async function renderOverview() {
             <tr>
               <td><code>${r.run_id}</code></td>
               <td>${r.lab_id}</td>
-              <td><span class="badge badge-skip">${r.state}</span></td>
+              <td><span class="badge badge-outline">${r.state}</span></td>
               <td>${r.mode}</td>
               <td>
-                <span class="badge ${r.lab_verdict === 'PASS' ? 'badge-pass' : (r.lab_verdict === 'ERROR' ? 'badge-error' : 'badge-fail')}">
+                <span class="badge ${r.lab_verdict === 'PASS' ? 'badge-success badge-outline' : (r.lab_verdict === 'ERROR' ? 'badge-warning badge-outline' : 'badge-danger badge-outline')}">
                   ${r.lab_verdict || 'RUNNING'}
                 </span>
               </td>
               <td><strong>${r.score_passed} / ${r.score_total}</strong></td>
               <td>${r.started_at ? r.started_at.substring(0, 19).replace('T', ' ') : '-'}</td>
-              <td><button class="btn btn-secondary" onclick="viewRunDetail('${r.run_id}')">View Details</button></td>
+              <td><button class="btn btn-light" onclick="viewRunDetail('${r.run_id}')">View Details</button></td>
             </tr>
           `).join('')}
         </tbody>
@@ -347,18 +480,23 @@ async function renderCourses() {
 
   if (!appState.selectedCourse) {
     container.innerHTML = `
-      <div class="card" style="text-align: center; padding: 50px 20px;">
-        <h3 style="font-size: 17px; margin-bottom: 8px;">No Course Selected</h3>
-        <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 18px;">
-          Please select a course from the dropdown above, or import a Course Archive (.zip) and Grading Export (.json).
-        </p>
-        <button class="btn btn-primary" onclick="openImportModal()">📂 Import Course / Grading</button>
+      <div class="card">
+        <div class="card-body flex flex-col items-center justify-center py-10 text-center">
+          <div class="mb-3"><i class="ki-filled ki-book-open text-3xl text-primary"></i></div>
+          <h3 class="text-base font-semibold text-gray-900 mb-1.5">No Course Selected</h3>
+          <p class="text-xs text-gray-600 mb-4">
+            Please select a course from the dropdown above, or import a Course Archive (.zip) and Grading Export (.json).
+          </p>
+          <button class="btn btn-sm btn-primary" onclick="openImportModal()">
+            <i class="ki-filled ki-cloud-add"></i> Import Course / Grading
+          </button>
+        </div>
       </div>
     `;
     return;
   }
 
-  container.innerHTML = `<div style="color: var(--text-muted);">Loading courses explorer for '${escapeHtml(appState.selectedCourse)}'...</div>`;
+  container.innerHTML = `<div class="text-xs text-gray-500">Loading courses explorer for '${escapeHtml(appState.selectedCourse)}'...</div>`;
 
   try {
     const res = await fetch(`${API_BASE}/courses/${encodeURIComponent(appState.selectedCourse)}/labs`);
@@ -367,89 +505,118 @@ async function renderCourses() {
     appState.labs = labs;
 
     container.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
-        <div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <h2 style="font-size: 18px; font-weight: 700;">Courses Explorer — ${appState.selectedCourse.toUpperCase()}</h2>
-            <span class="badge badge-pass">${labs.length} Labs Only</span>
+      <div id="aiActionBanner" style="display: none; margin-bottom: 16px;"></div>
+      <div id="lintSummaryBanner" style="display: none; margin-bottom: 16px;"></div>
+
+      <div class="card card-grid min-w-full">
+        <div class="card-header flex-wrap gap-2 py-4">
+          <div class="flex flex-col gap-1">
+            <div class="flex items-center gap-2">
+              <h3 class="card-title text-base font-semibold text-gray-900">
+                <i class="ki-filled ki-book-open text-primary me-1.5"></i>
+                Courses Explorer — ${escapeHtml(appState.selectedCourse.toUpperCase())}
+              </h3>
+              <span class="badge badge-sm badge-success badge-outline">${labs.length} Labs Only</span>
+            </div>
+            <span class="text-xs text-gray-600">
+              Showing Lab tasks only (non-lab theory &amp; quizzes filtered out). Inspect grader cases, lint issues, and readiness.
+            </span>
           </div>
-          <p style="color: var(--text-secondary); font-size: 12px;">Showing Lab tasks only (non-lab theory & quizzes filtered out). Inspect grader cases, lint issues, and readiness.</p>
+          <div class="flex flex-wrap gap-2">
+            <button class="btn btn-sm btn-light" onclick="openImportModal()">
+              <i class="ki-filled ki-cloud-add"></i> Import Course / Grading
+            </button>
+            <button class="btn btn-sm btn-primary" onclick="openNewLabModal()">
+              + Create Lab
+            </button>
+            <button class="btn btn-sm btn-info" onclick="triggerAiGraderRemediation()">
+              ✨ AI Fix Grading
+            </button>
+            <button class="btn btn-sm btn-success" onclick="triggerAiCourseUpdate()">
+              🚀 AI Update Course
+            </button>
+            <button class="btn btn-sm btn-light" onclick="runStaticLintOnCourse()">
+              Grader Lint
+            </button>
+            <button class="btn btn-sm btn-light" onclick="exportPatchedCourseJson()">
+              Export Patched JSON
+            </button>
+            <button class="btn btn-sm btn-danger btn-outline" onclick="deleteCurrentCourse()" title="Delete this course">
+              Delete Course
+            </button>
+          </div>
         </div>
-        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-          <button class="btn btn-secondary" onclick="openImportModal()">📂 Import Course / Grading</button>
-          <button class="btn btn-primary" onclick="openNewLabModal()">+ Create Lab</button>
-          <button class="btn btn-secondary" style="background: linear-gradient(135deg, #7c3aed, #8b5cf6); color: #fff; border: none;" onclick="triggerAiGraderRemediation()">✨ AI Fix Grading</button>
-          <button class="btn btn-secondary" style="background: linear-gradient(135deg, #059669, #10b981); color: #fff; border: none;" onclick="triggerAiCourseUpdate()">🚀 AI Update Course & Modules</button>
-          <button class="btn btn-secondary" onclick="runStaticLintOnCourse()">Grader Lint</button>
-          <button class="btn btn-secondary" onclick="exportPatchedCourseJson()">Export Patched JSON</button>
-          <button class="btn btn-secondary" style="color: #f87171;" onclick="deleteCurrentCourse()" title="Delete this course">Delete Course</button>
+
+        <div class="card-body p-0">
+          <div class="card-table scrollable-x-auto">
+            <table class="table table-border align-middle text-gray-700 font-medium text-sm">
+              <thead>
+                <tr>
+                  <th class="w-[120px]">Chapter / Part</th>
+                  <th>Lab Description</th>
+                  <th class="w-[130px]">Cases</th>
+                  <th class="w-[150px]">Validation States</th>
+                  <th class="w-[130px]">Readiness</th>
+                  <th class="w-[210px]">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${labs.length === 0 ? `
+                  <tr>
+                    <td colspan="6" class="text-center py-8 text-gray-500">
+                      No labs found in this course. Click <strong>Import Course / Grading</strong> to import a Course ZIP or Grading JSON.
+                    </td>
+                  </tr>
+                ` : labs.map(l => {
+                  const unsolvedRes = (l.validation_states || {}).unsolved || "not_run";
+                  const solvedRes = (l.validation_states || {}).solved || "not_run";
+                  const nearMissRes = (l.validation_states || {}).near_miss || "not_run";
+                  const isReady = (unsolvedRes === "ok" && solvedRes === "ok" && nearMissRes === "ok");
+
+                  return `
+                    <tr>
+                      <td><span class="badge badge-sm badge-outline font-mono">${l.chapter}.${l.part}</span></td>
+                      <td>
+                        <div class="font-semibold text-gray-900">${escapeHtml(l.description)}</div>
+                        <div class="text-xs text-gray-500 font-mono">ID: ${l.export_id} | Slug: ${l.slug || '-'}</div>
+                      </td>
+                      <td><span class="badge badge-sm badge-primary badge-outline">${(l.grade || []).length} Cases</span></td>
+                      <td>
+                        <div class="flex gap-1">
+                          <span class="badge badge-xs ${unsolvedRes === 'ok' ? 'badge-success badge-outline' : (unsolvedRes === 'violation' ? 'badge-danger badge-outline' : 'badge-outline')}" title="Unsolved">U</span>
+                          <span class="badge badge-xs ${solvedRes === 'ok' ? 'badge-success badge-outline' : (solvedRes === 'violation' ? 'badge-danger badge-outline' : 'badge-outline')}" title="Solved">S</span>
+                          <span class="badge badge-xs ${nearMissRes === 'ok' ? 'badge-success badge-outline' : (nearMissRes === 'violation' ? 'badge-danger badge-outline' : 'badge-outline')}" title="Near-Miss">N</span>
+                        </div>
+                      </td>
+                      <td>
+                        <span class="badge badge-sm ${isReady ? 'badge-success badge-outline' : 'badge-outline'}">${isReady ? 'Ready' : 'In Progress'}</span>
+                      </td>
+                      <td>
+                        <div class="flex items-center gap-2">
+                          <button class="btn btn-xs btn-light" onclick="viewLabCases('${l.id}')">Inspect Cases</button>
+                          <button class="btn btn-xs btn-primary" onclick="prepareRunForLab('${l.id}')">
+                            <i class="ki-filled ki-rocket"></i> Run
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-
-      <div id="aiActionBanner" style="display: none; margin-bottom: 15px;"></div>
-      <div id="lintSummaryBanner" style="display: none; margin-bottom: 15px;"></div>
-
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Chapter / Part</th>
-            <th>Lab Description</th>
-            <th>Cases</th>
-            <th>Validation States</th>
-            <th>Readiness</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${labs.length === 0 ? `
-            <tr>
-              <td colspan="6" style="text-align: center; padding: 30px; color: var(--text-muted);">
-                No labs found in this course. Click <strong>📂 Import Course / Grading</strong> to import a Course ZIP or Grading JSON.
-              </td>
-            </tr>
-          ` : labs.map(l => {
-            const unsolvedRes = (l.validation_states || {}).unsolved || "not_run";
-            const solvedRes = (l.validation_states || {}).solved || "not_run";
-            const nearMissRes = (l.validation_states || {}).near_miss || "not_run";
-            const isReady = (unsolvedRes === "ok" && solvedRes === "ok" && nearMissRes === "ok");
-
-            return `
-              <tr>
-                <td><code>${l.chapter}.${l.part}</code></td>
-                <td>
-                  <strong>${escapeHtml(l.description)}</strong>
-                  <div style="font-size: 11px; color: var(--text-muted);">ID: ${l.export_id} | Slug: ${l.slug || '-'}</div>
-                </td>
-                <td><span class="badge badge-skip">${(l.grade || []).length} Cases</span></td>
-                <td>
-                  <div style="display: flex; gap: 4px;">
-                    <span class="badge ${unsolvedRes === 'ok' ? 'badge-pass' : (unsolvedRes === 'violation' ? 'badge-fail' : 'badge-skip')}" title="Unsolved">U</span>
-                    <span class="badge ${solvedRes === 'ok' ? 'badge-pass' : (solvedRes === 'violation' ? 'badge-fail' : 'badge-skip')}" title="Solved">S</span>
-                    <span class="badge ${nearMissRes === 'ok' ? 'badge-pass' : (nearMissRes === 'violation' ? 'badge-fail' : 'badge-skip')}" title="Near-Miss">N</span>
-                  </div>
-                </td>
-                <td>
-                  <span class="badge ${isReady ? 'badge-pass' : 'badge-skip'}">${isReady ? 'Ready' : 'In Progress'}</span>
-                </td>
-                <td>
-                  <button class="btn btn-secondary" onclick="viewLabCases('${l.id}')">Inspect Cases</button>
-                  <button class="btn btn-primary" onclick="prepareRunForLab('${l.id}')">Run</button>
-                </td>
-              </tr>
-            `;
-          }).join('')}
-        </tbody>
-      </table>
     `;
   } catch (e) {
-    container.innerHTML = `<div style="color: #ef4444;">Failed to load courses: ${e.message}</div>`;
+    container.innerHTML = `<div class="text-danger">Failed to load courses: ${e.message}</div>`;
   }
 }
 
 async function runStaticLintOnCourse() {
   const banner = document.getElementById("lintSummaryBanner");
   banner.style.display = "block";
-  banner.innerHTML = `<div class="card" style="border-color: var(--accent-blue);">Running static Grader Lint (GL01-GL16)...</div>`;
+  banner.innerHTML = `<div class="card p-5" style="border-color: var(--accent-blue);">Running static Grader Lint (GL01-GL16)...</div>`;
 
   try {
     const res = await fetch(`${API_BASE}/lint/run`, {
@@ -463,7 +630,7 @@ async function runStaticLintOnCourse() {
     const warnCount = data.issues.filter(i => i.severity === "warn").length;
 
     banner.innerHTML = `
-      <div class="card" style="border-left: 4px solid ${blockCount > 0 ? '#ef4444' : '#f59e0b'};">
+      <div class="card p-5" style="border-left: 4px solid ${blockCount > 0 ? '#ef4444' : '#f59e0b'};">
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <div>
             <strong>Grader Lint Complete: ${data.total_issues} Issues Found</strong>
@@ -473,13 +640,13 @@ async function runStaticLintOnCourse() {
               All issues flagged with <code>suspect=true</code> until confirmed by run.
             </div>
           </div>
-          <button class="btn btn-secondary" onclick="document.getElementById('lintSummaryBanner').style.display='none'">Dismiss</button>
+          <button class="btn btn-light" onclick="document.getElementById('lintSummaryBanner').style.display='none'">Dismiss</button>
         </div>
         <div style="margin-top: 10px; max-height: 200px; overflow-y: auto;">
           ${data.issues.slice(0, 10).map(iss => `
             <div style="font-size: 12px; margin-bottom: 6px; padding: 4px 8px; background-color: var(--bg-tertiary); border-radius: 4px; display: flex; justify-content: space-between;">
               <span><strong>${iss.rule_id}</strong> [${iss.severity}]: ${iss.message} (${iss.lab_desc || ''})</span>
-              <button class="btn btn-secondary" style="padding: 2px 6px; font-size: 10px;" onclick="promoteIssueToFinding('${iss.rule_id}', '${escapeHtml(iss.message)}')">Promote to Finding</button>
+              <button class="btn btn-light" style="padding: 2px 6px; font-size: 10px;" onclick="promoteIssueToFinding('${iss.rule_id}', '${escapeHtml(iss.message)}')">Promote to Finding</button>
             </div>
           `).join('')}
         </div>
@@ -506,18 +673,18 @@ async function viewLabCases(labId) {
       <div style="background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; margin-top: 6px; font-size: 12px;">
         <div>[M] Every objective has at least one case: <strong style="color: #4ade80;">✓ Checked</strong></div>
         <div>[A] Lint has no unwaived block issues: <strong style="color: #4ade80;">✓ Verified</strong></div>
-        <div>[A] Unsolved run fails all required cases: <span class="badge badge-skip">Checked in Matrix</span></div>
-        <div>[A] Solved run passes all cases: <span class="badge badge-skip">Checked in Matrix</span></div>
-        <div>[A] Manual and tool results agree: <span class="badge badge-skip">Cross-check enabled</span></div>
+        <div>[A] Unsolved run fails all required cases: <span class="badge badge-outline">Checked in Matrix</span></div>
+        <div>[A] Solved run passes all cases: <span class="badge badge-outline">Checked in Matrix</span></div>
+        <div>[A] Manual and tool results agree: <span class="badge badge-outline">Cross-check enabled</span></div>
       </div>
     </div>
 
     <h4 style="font-size: 13px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 10px;">Grade Cases (${lab.grade.length})</h4>
     ${lab.grade.map((c, idx) => `
-      <div class="card" style="margin-bottom: 14px;">
+      <div class="card p-5" style="margin-bottom: 14px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
           <strong>${escapeHtml(c.name)}</strong>
-          <span class="badge badge-skip">Case ${c.case_index}</span>
+          <span class="badge badge-outline">Case ${c.case_index}</span>
         </div>
 
         <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">CHECK COMMAND (READ-ONLY):</div>
@@ -537,14 +704,14 @@ async function viewLabCases(labId) {
         ` : ''}
 
         <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px;">
-          <button class="btn btn-secondary" onclick="proposeRevisionForCase('${c.id}', '${escapeQuotes(c.expect)}')">Propose Revision (Diff)</button>
+          <button class="btn btn-light" onclick="proposeRevisionForCase('${c.id}', '${escapeQuotes(c.expect)}')">Propose Revision (Diff)</button>
           <button class="btn btn-primary" onclick="prepareRunForLab('${lab.id}', ${c.case_index})">Run Case</button>
         </div>
       </div>
     `).join('')}
   `;
 
-  drawer.style.display = "block";
+  drawer.style.display = "flex";
 }
 
 function closeCaseDrawer() {
@@ -577,6 +744,11 @@ function proposeRevisionForCase(caseId, currentExpect) {
 // ==================== 7.6 Run Console ====================
 function prepareRunForLab(labId, caseIndex = null) {
   closeCaseDrawer();
+  const currentPageView = document.body && document.body.getAttribute("data-page-view");
+  if (currentPageView && currentPageView !== "runs") {
+    window.location.href = `runs.html?lab=${encodeURIComponent(labId)}`;
+    return;
+  }
   switchView("runs");
   setTimeout(() => {
     const select = document.getElementById("runLabSelect");
@@ -608,243 +780,272 @@ async function renderRuns() {
       console.error("Failed to load labs for Run Console", e);
     }
   }
+  const urlLabId = new URLSearchParams(window.location.search).get("lab");
   container.innerHTML = `
     <div class="runs-layout-grid">
-      <!-- Left: Run Configuration Console -->
-      <div class="card">
-        <h3 style="font-size: 14px; margin-bottom: 14px; color: var(--text-primary); text-transform: none; font-weight: 700;">
-          Launch Grading Run
-        </h3>
-
-        <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary);">Target Lab:</label>
-        <select id="runLabSelect" style="width: 100%; margin-bottom: 12px;" onchange="loadLabMdForSelectedLab()">
-          ${appState.labs.length > 0 ? appState.labs.map(l => `<option value="${l.id}">${escapeHtml(l.description || l.title || l.id)} (${l.chapter}.${l.part})</option>`).join('') : '<option value="">(No labs loaded for this course)</option>'}
-        </select>
-
-        <label style="display: block; font-size: 12px; margin-bottom: 4px; color: #c084fc; font-weight: 600;">⚡ Workflow Mode:</label>
-        <select id="runWorkflowSelect" style="width: 100%; margin-bottom: 12px; background: rgba(139, 92, 246, 0.12); border: 1px solid #8b5cf6; color: #f8fafc; font-weight: 600; padding: 6px 10px; border-radius: 4px;">
-          <option value="4step" selected>⚡ 4-Step Pipeline: Baseline &rarr; Solve &rarr; Manual &rarr; nusactl</option>
-          <option value="standard">Standard Run (Single Mode)</option>
-        </select>
-
-        <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary);">Target Environment:</label>
-        <select id="runTargetSelect" style="width: 100%; margin-bottom: 12px;">
-          ${appState.targets.map(t => `<option value="${t.id}">${t.name} [${t.modifiable ? 'MODIFIABLE' : 'IMMUTABLE'}]</option>`).join('')}
-        </select>
-
-        <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary);">Validation State (Sec 10.8):</label>
-        <select id="runStateSelect" style="width: 100%; margin-bottom: 12px;" onchange="onRunStateChange()">
-          <option value="unsolved">Unsolved (All required cases must FAIL)</option>
-          <option value="solved" selected>Solved (Reference solution - all cases must PASS)</option>
-          <option value="near-miss">Near-Miss (Targeted defect must FAIL)</option>
-          <option value="final">Final Run</option>
-        </select>
-
-        <!-- AI Solver: Follow Lab MD instructions or Solve Challenge Requirements checkbox -->
-        <div style="margin-bottom: 14px; padding: 10px 12px; background: rgba(139, 92, 246, 0.08); border: 1px solid #8b5cf6; border-radius: 6px;">
-          <label style="display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 12px; color: #c4b5fd; cursor: pointer;">
-            <input type="checkbox" id="runFollowLabMdCheckbox" checked>
-            🤖 AI Solver: Follow Instructions &amp; Solve Challenge Requirements
-          </label>
-          <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">
-            Reads step-by-step Lab MD instructions <em>or</em> automatically synthesizes solution steps from Challenge Requirements &amp; Grader Test Cases when no guide is provided.
+      <!-- Left: Run Configuration Console (Metronic Card) -->
+      <div class="flex flex-col gap-4">
+        <div class="card card-compact">
+          <div class="card-header">
+            <h3 class="card-title text-sm font-semibold text-gray-900">
+              <i class="ki-filled ki-rocket text-primary me-1.5"></i> Launch Grading Run
+            </h3>
+            <span class="badge badge-xs badge-primary badge-outline">4-Step Pipeline</span>
           </div>
-        </div>
-
-        <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary);">Execution Mode:</label>
-        <select id="runModeSelect" style="width: 100%; margin-bottom: 12px;">
-          <option value="manual">Manual SSH (Source of Truth)</option>
-          <option value="tool">Tool Mode (nusactl grade)</option>
-          <option value="both" selected>Both & Cross-Check (Recommended)</option>
-        </select>
-
-        <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary);">Platform Grade Slug (<code>nusactl grade &lt;slug&gt;</code>):</label>
-        <div style="display: flex; gap: 6px; margin-bottom: 12px;">
-          <input type="text" id="runGradeSlugInput" placeholder="e.g. glpc-004-1, dok8s-001-1, gladm-001-1" style="flex: 1; font-family: var(--font-mono); font-size: 12px; padding: 6px 10px; background: var(--bg-code); color: #38bdf8; border: 1px solid var(--border-color); border-radius: 4px;">
-          <button class="btn btn-secondary" style="font-size: 11px; white-space: nowrap;" onclick="resetToDefaultGradeSlug()" title="Reset to auto-resolved slug">Auto Slug</button>
-        </div>
-
-        <!-- Git Global Config Credentials Inputs (Optional) -->
-        <div id="gitConfigBox" style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px 12px; margin-bottom: 12px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <span style="font-size: 11px; font-weight: 700; color: #38bdf8; text-transform: uppercase;">
-              🐙 Git Global Config <span style="font-size: 10px; font-weight: 400; color: var(--text-muted);">(Optional)</span>
-            </span>
-            <span id="gitConfigStatusNote" style="font-size: 10px; color: var(--text-muted);">Only used if lab steps include git config</span>
-          </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-            <div>
-              <label style="display: block; font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;">username akun git:</label>
-              <input type="text" id="runGitUserInput" value="${escapeHtml(localStorage.getItem('gitUsername') || '')}" placeholder="Optional (e.g. afifr)" style="width: 100%; font-family: var(--font-mono); font-size: 12px; padding: 6px 8px; box-sizing: border-box; background: var(--bg-code); color: #f8fafc; border: 1px solid var(--border-color); border-radius: 4px;">
+          <div class="card-body flex flex-col gap-3">
+            <div class="flex flex-col gap-1">
+              <label class="form-label text-xs text-gray-600">Target Lab:</label>
+              <select id="runLabSelect" class="select select-sm" onchange="loadLabMdForSelectedLab()">
+                ${appState.labs.length > 0 ? appState.labs.map(l => `<option value="${l.id}" ${urlLabId === l.id ? 'selected' : ''}>${escapeHtml(l.description || l.title || l.id)} (${l.chapter}.${l.part})</option>`).join('') : '<option value="">(No labs loaded for this course)</option>'}
+              </select>
             </div>
-            <div>
-              <label style="display: block; font-size: 11px; color: var(--text-secondary); margin-bottom: 4px;">email akun git:</label>
-              <input type="text" id="runGitEmailInput" value="${escapeHtml(localStorage.getItem('gitEmail') || '')}" placeholder="Optional (e.g. afifr@aditraining.id)" style="width: 100%; font-family: var(--font-mono); font-size: 12px; padding: 6px 8px; box-sizing: border-box; background: var(--bg-code); color: #f8fafc; border: 1px solid var(--border-color); border-radius: 4px;">
+
+            <div class="flex flex-col gap-1">
+              <label class="form-label text-xs text-primary font-semibold">⚡ Workflow Mode:</label>
+              <select id="runWorkflowSelect" class="select select-sm">
+                <option value="4step" selected>⚡ 4-Step Pipeline: Baseline &rarr; Solve &rarr; Manual &rarr; nusactl</option>
+                <option value="standard">Standard Run (Single Mode)</option>
+              </select>
             </div>
+
+            <div class="grid grid-cols-2 gap-2.5">
+              <div class="flex flex-col gap-1">
+                <label class="form-label text-xs text-gray-600">Target VM:</label>
+                <select id="runTargetSelect" class="select select-sm">
+                  ${appState.targets.map(t => `<option value="${t.id}">${t.name} [${t.modifiable ? 'MOD' : 'IMM'}]</option>`).join('')}
+                </select>
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="form-label text-xs text-gray-600">Validation State:</label>
+                <select id="runStateSelect" class="select select-sm" onchange="onRunStateChange()">
+                  <option value="unsolved">Unsolved (Must FAIL)</option>
+                  <option value="solved" selected>Solved (Must PASS)</option>
+                  <option value="near-miss">Near-Miss</option>
+                  <option value="final">Final Run (Auto-Solve Unsolved &rarr; SOLVED)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- AI Solver: Follow Lab MD instructions or Solve Challenge Requirements checkbox -->
+            <div class="card p-3 bg-light-active border border-gray-200">
+              <label class="checkbox-group cursor-pointer">
+                <input type="checkbox" id="runFollowLabMdCheckbox" class="checkbox checkbox-sm" checked>
+                <span class="checkbox-label font-semibold text-xs text-gray-900">
+                  🤖 AI Solver: Follow Instructions, Solve Challenge &amp; Auto-Fix Unsolved Cases
+                </span>
+              </label>
+              <div class="text-xs text-gray-600 mt-1">
+                Reads step-by-step Lab MD instructions <em>or</em> synthesizes solution steps from Challenge Requirements &amp; Grader Test Cases. If any case remains unsolved during Final Run, AI iteratively remediates each failed case until its status is <strong>SOLVED</strong>.
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2.5">
+              <div class="flex flex-col gap-1">
+                <label class="form-label text-xs text-gray-600">Execution Mode:</label>
+                <select id="runModeSelect" class="select select-sm">
+                  <option value="manual">Manual SSH</option>
+                  <option value="tool">Tool (nusactl)</option>
+                  <option value="both" selected>Both &amp; Cross-Check</option>
+                </select>
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="form-label text-xs text-gray-600">Variables:</label>
+                <input type="text" id="runVarsInput" class="input input-sm" placeholder="$NUSA_USERNAME=nusa">
+              </div>
+            </div>
+
+            <div class="flex flex-col gap-1">
+              <label class="form-label text-xs text-gray-600">Platform Grade Slug (<code>nusactl grade &lt;slug&gt;</code>):</label>
+              <div class="flex gap-1.5">
+                <input type="text" id="runGradeSlugInput" class="input input-sm font-mono flex-1" placeholder="e.g. glpc-004-1, glpc-009-5">
+                <button class="btn btn-sm btn-light shrink-0" onclick="resetToDefaultGradeSlug()" title="Reset to auto-resolved slug">Auto Slug</button>
+              </div>
+            </div>
+
+            <!-- Git Global Config Credentials Inputs (Optional) -->
+            <div id="gitConfigBox" class="card p-3">
+              <div class="flex justify-between items-center mb-2">
+                <span class="text-xs font-semibold text-primary uppercase">
+                  🐙 Git Global Config <span class="text-2xs font-normal text-gray-500">(Optional)</span>
+                </span>
+                <span id="gitConfigStatusNote" class="text-2xs text-gray-500">Auto-detected from lab</span>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div class="flex flex-col gap-1">
+                  <label class="form-label text-2xs text-gray-600">username akun git:</label>
+                  <input type="text" id="runGitUserInput" class="input input-sm font-mono" value="${escapeHtml(localStorage.getItem('gitUsername') || '')}" placeholder="e.g. afifr">
+                </div>
+                <div class="flex flex-col gap-1">
+                  <label class="form-label text-2xs text-gray-600">email akun git:</label>
+                  <input type="text" id="runGitEmailInput" class="input input-sm font-mono" value="${escapeHtml(localStorage.getItem('gitEmail') || '')}" placeholder="e.g. afifr@aditraining.id">
+                </div>
+              </div>
+            </div>
+
+            <button class="btn btn-primary justify-center w-full font-semibold" onclick="executeGradingRun()">
+              <i class="ki-filled ki-rocket"></i> Run 4-Step Automated Flow
+            </button>
           </div>
         </div>
-
-        <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary);">Variables (e.g. $NUSA_USERNAME):</label>
-        <input type="text" id="runVarsInput" placeholder="$NUSA_USERNAME=nusa" style="width: 100%; margin-bottom: 16px;">
-
-        <div style="background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; font-size: 11px; margin-bottom: 16px;">
-          <strong style="color: #fbbf24;">Safety Gate Warning:</strong>
-          <div>State-changing steps (start, solution, finish) require Operator approval gate on modifiable targets.</div>
-        </div>
-
-        <button class="btn btn-primary" style="width: 100%; justify-content: center; font-size: 13px; font-weight: 700; background: linear-gradient(135deg, #7c3aed, #2563eb); padding: 10px 14px; margin-bottom: 8px;" onclick="executeGradingRun()">
-          🚀 Run 4-Step Automated Flow
-        </button>
 
         <!-- Lab MD Preview & Custom Editor Card -->
-        <div class="card" style="margin-top: 12px; border: 1px solid var(--border-color); background: var(--bg-secondary);">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <strong style="font-size: 12px; color: var(--text-primary);">📖 Lab MD Instructions</strong>
-            <div style="display: flex; gap: 4px;">
-              <button class="btn btn-primary" style="font-size: 10px; padding: 2px 7px; background: #8b5cf6;" onclick="runDirectFromMd()" title="Run 4-Step Pipeline directly from this Markdown">⚡ Run MD</button>
-              <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="previewParsedLabSteps()" title="Preview executable commands extracted by AI">🤖 Steps</button>
-              <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="toggleEditLabMd()" title="Edit or paste custom Markdown instructions">✏️ Edit MD</button>
+        <div class="card card-compact">
+          <div class="card-header">
+            <h3 class="card-title text-xs font-semibold text-gray-900">📖 Lab MD Instructions</h3>
+            <div class="flex gap-1.5">
+              <button class="btn btn-xs btn-info" onclick="runDirectFromMd()" title="Run 4-Step Pipeline directly from this Markdown">⚡ Run MD</button>
+              <button class="btn btn-xs btn-light" onclick="previewParsedLabSteps()" title="Preview executable commands extracted by AI">🤖 Steps</button>
+              <button class="btn btn-xs btn-light" onclick="toggleEditLabMd()" title="Edit or paste custom Markdown instructions">✏️ Edit MD</button>
             </div>
           </div>
-          <div id="labMdInfo" style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">Loading Lab MD...</div>
-          <div id="labMdPreview" style="background: var(--bg-code); border: 1px solid var(--border-color); border-radius: 4px; padding: 8px; max-height: 120px; overflow-y: auto; font-family: var(--font-mono); font-size: 11px; white-space: pre-wrap; color: #cbd5e1;"></div>
-          <div id="labMdEditorContainer" style="display: none; margin-top: 8px;">
-            <textarea id="labMdEditorInput" style="width: 100%; height: 160px; font-family: var(--font-mono); font-size: 11px; background: var(--bg-code); color: #f8fafc; border: 1px solid var(--border-color); border-radius: 4px; padding: 8px; box-sizing: border-box;" placeholder="Paste or edit Lab Markdown here..."></textarea>
-            <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px;">
-              <button class="btn btn-secondary" style="font-size: 11px; padding: 3px 8px;" onclick="toggleEditLabMd()">Cancel</button>
-              <button class="btn btn-primary" style="font-size: 11px; padding: 3px 8px;" onclick="saveCustomLabMd()">💾 Save Lab MD</button>
+          <div class="card-body flex flex-col gap-2">
+            <div id="labMdInfo" class="text-xs text-gray-500">Loading Lab MD...</div>
+            <div id="labMdPreview" class="kt-terminal p-2.5 overflow-y-auto" style="max-height: 130px; white-space: pre-wrap;"></div>
+            <div id="labMdEditorContainer" style="display: none;">
+              <textarea id="labMdEditorInput" class="textarea font-mono text-xs w-full" style="height: 160px;" placeholder="Paste or edit Lab Markdown here..."></textarea>
+              <div class="flex justify-end gap-2 mt-2">
+                <button class="btn btn-xs btn-light" onclick="toggleEditLabMd()">Cancel</button>
+                <button class="btn btn-xs btn-primary" onclick="saveCustomLabMd()">💾 Save Lab MD</button>
+              </div>
             </div>
           </div>
         </div>
 
         <!-- Dynamic Grader Test Cases Card (Non-hardcoded) -->
-        <div class="card" style="margin-top: 12px; border: 1px solid var(--border-color); background: var(--bg-secondary);">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <strong style="font-size: 12px; color: var(--text-primary);">🧪 Grader Test Cases</strong>
-              <span id="labGradeCountBadge" class="badge badge-skip" style="font-size: 10px;">0 Cases</span>
+        <div class="card card-compact">
+          <div class="card-header">
+            <div class="flex items-center gap-2">
+              <h3 class="card-title text-xs font-semibold text-gray-900">🧪 Grader Test Cases</h3>
+              <span id="labGradeCountBadge" class="badge badge-xs badge-outline">0 Cases</span>
             </div>
-            <div style="display: flex; gap: 4px;">
-              <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="toggleEditLabGrade()" title="Edit or paste dynamic test cases JSON">✏️ Edit Grader</button>
-            </div>
+            <button class="btn btn-xs btn-light" onclick="toggleEditLabGrade()" title="Edit or paste dynamic test cases JSON">✏️ Edit Grader</button>
           </div>
-          <div id="labGradeInfo" style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">Dynamic test cases loaded from lab configuration</div>
-          <div id="labGradePreview" style="background: var(--bg-code); border: 1px solid var(--border-color); border-radius: 4px; padding: 8px; max-height: 140px; overflow-y: auto; font-family: var(--font-mono); font-size: 11px; color: #cbd5e1;"></div>
-          <div id="labGradeEditorContainer" style="display: none; margin-top: 8px;">
-            <textarea id="labGradeEditorInput" style="width: 100%; height: 180px; font-family: var(--font-mono); font-size: 11px; background: var(--bg-code); color: #f8fafc; border: 1px solid var(--border-color); border-radius: 4px; padding: 8px; box-sizing: border-box;" placeholder='Paste or edit Grader Test Cases JSON, e.g. [{"name": "case 1...", "cmd": "...", "expect": "..."}]'></textarea>
-            <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px;">
-              <button class="btn btn-secondary" style="font-size: 11px; padding: 3px 8px;" onclick="toggleEditLabGrade()">Cancel</button>
-              <button class="btn btn-primary" style="font-size: 11px; padding: 3px 8px;" onclick="saveCustomLabGrade()">💾 Save Grader</button>
+          <div class="card-body flex flex-col gap-2">
+            <div id="labGradeInfo" class="text-xs text-gray-500">Dynamic test cases loaded from lab configuration</div>
+            <div id="labGradePreview" class="kt-terminal p-2.5 overflow-y-auto" style="max-height: 140px;"></div>
+            <div id="labGradeEditorContainer" style="display: none;">
+              <textarea id="labGradeEditorInput" class="textarea font-mono text-xs w-full" style="height: 180px;" placeholder='Paste or edit Grader Test Cases JSON, e.g. [{"name": "case 1...", "cmd": "...", "expect": "..."}]'></textarea>
+              <div class="flex justify-end gap-2 mt-2">
+                <button class="btn btn-xs btn-light" onclick="toggleEditLabGrade()">Cancel</button>
+                <button class="btn btn-xs btn-primary" onclick="saveCustomLabGrade()">💾 Save Grader</button>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Right: Live Progress & Output Console -->
-      <div class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-          <h3 style="font-size: 14px; margin: 0; color: var(--text-primary); text-transform: none; font-weight: 700;">
-            Live Execution Stream (SSE)
-          </h3>
-          <span id="runLiveBadge" class="badge badge-skip">Idle</span>
-        </div>
-
-        <div id="runProgressBox" style="background-color: var(--bg-code); border: 1px solid var(--border-color); border-radius: 6px; padding: 14px; height: 380px; overflow-y: auto; font-family: var(--font-mono); font-size: 12px; color: #f8fafc; line-height: 1.5;">
-          <div style="color: var(--text-muted);">Select options on the left and click "Start Grading Execution" to watch live results stream in real-time...</div>
+      <!-- Right: Live Progress & Output Console (Metronic Card) -->
+      <div class="flex flex-col gap-4">
+        <div class="card card-compact">
+          <div class="card-header">
+            <h3 class="card-title text-sm font-semibold text-gray-900">
+              <i class="ki-filled ki-technology-2 text-primary me-1.5"></i> Live Execution Stream (SSE)
+            </h3>
+            <span id="runLiveBadge" class="badge badge-sm badge-outline">Idle</span>
+          </div>
+          <div class="card-body">
+            <div id="runProgressBox" class="kt-terminal p-3.5 overflow-y-auto" style="height: 380px;">
+              <div class="text-gray-500">Select options on the left and click "Run 4-Step Automated Flow" to watch live results stream in real-time...</div>
+            </div>
+          </div>
         </div>
 
         <!-- Live SSE Case Breakdown (Divided: 1. Manual Bash, 2. Automated nusactl) -->
-        <div id="liveResultsPanel" style="margin-top: 14px; display: flex; flex-direction: column; gap: 14px;">
+        <div id="liveResultsPanel" class="flex flex-col gap-4">
 
           <!-- SECTION 1: MANUAL BASH TEST CASES -->
-          <div style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <strong style="font-size: 13px; color: var(--text-primary);">🛠️ 1. Manual Test Cases (Manual Bash)</strong>
-                <span id="liveCaseStatsSummary" class="badge badge-skip">0 / 0 Cases</span>
+          <div class="card card-compact">
+            <div class="card-header">
+              <div class="flex items-center gap-2">
+                <h3 class="card-title text-xs font-semibold text-gray-900">🛠️ 1. Manual Test Cases (Manual Bash)</h3>
+                <span id="liveCaseStatsSummary" class="badge badge-xs badge-outline">0 / 0 Cases</span>
               </div>
-              <div id="liveOverallPill" style="font-size: 11px; font-weight: 600; color: var(--text-muted);">
+              <div id="liveOverallPill" class="text-xs font-semibold text-gray-500">
                 Awaiting manual execution...
               </div>
             </div>
 
-            <!-- Manual Pass / Fail Badges Row -->
-            <div class="case-badge-grid">
-              <!-- Passed Cases Box -->
-              <div style="background: rgba(34, 197, 94, 0.08); border: 1px solid #22c55e; border-radius: 6px; padding: 10px 12px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                  <span style="font-size: 12px; font-weight: 700; color: #4ade80;">✅ Manual Cases Passed:</span>
-                  <span id="passedCountBadge" class="badge badge-pass" style="font-size: 11px;">0</span>
+            <div class="card-body flex flex-col gap-3">
+              <!-- Manual Pass / Fail Badges Row -->
+              <div class="case-badge-grid">
+                <!-- Passed Cases Box -->
+                <div class="card p-3" style="background: var(--pass-bg); border-color: var(--pass-border);">
+                  <div class="flex justify-between items-center mb-1.5">
+                    <span class="text-xs font-semibold text-success">✅ Manual Cases Passed:</span>
+                    <span id="passedCountBadge" class="badge badge-xs badge-success badge-outline">0</span>
+                  </div>
+                  <div id="passedCasesPills" class="flex flex-wrap gap-1.5 items-center" style="min-height: 22px;">
+                    <span class="text-xs text-gray-500">None yet</span>
+                  </div>
                 </div>
-                <div id="passedCasesPills" style="display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; align-items: center;">
-                  <span style="font-size: 11px; color: var(--text-muted);">None yet</span>
+
+                <!-- Failed Cases Box -->
+                <div class="card p-3" style="background: var(--fail-bg); border-color: var(--fail-border);">
+                  <div class="flex justify-between items-center mb-1.5">
+                    <span class="text-xs font-semibold text-danger">❌ Manual Cases Failed:</span>
+                    <span id="failedCountBadge" class="badge badge-xs badge-danger badge-outline">0</span>
+                  </div>
+                  <div id="failedCasesPills" class="flex flex-wrap gap-1.5 items-center" style="min-height: 22px;">
+                    <span class="text-xs text-gray-500">None yet</span>
+                  </div>
                 </div>
               </div>
 
-              <!-- Failed Cases Box -->
-              <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid #ef4444; border-radius: 6px; padding: 10px 12px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                  <span style="font-size: 12px; font-weight: 700; color: #f87171;">❌ Manual Cases Failed:</span>
-                  <span id="failedCountBadge" class="badge badge-fail" style="font-size: 11px;">0</span>
+              <!-- Detailed Case Output Inspection Container -->
+              <div>
+                <div class="flex justify-between items-center mb-1.5">
+                  <span class="text-2xs font-semibold text-gray-600 uppercase">Manual Case Outputs &amp; Inspection:</span>
+                  <button class="btn btn-xs btn-light" onclick="toggleLiveCaseDetails()" id="liveDetailsToggleBtn">Hide Details</button>
                 </div>
-                <div id="failedCasesPills" style="display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; align-items: center;">
-                  <span style="font-size: 11px; color: var(--text-muted);">None yet</span>
+                <div id="liveCasesTable" class="kt-terminal overflow-y-auto" style="max-height: 200px;">
+                  <div class="p-3 text-gray-500 text-xs text-center">Case outputs and command diagnostics will appear here live...</div>
                 </div>
-              </div>
-            </div>
-
-            <!-- Detailed Case Output Inspection Container -->
-            <div>
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <span style="font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase;">Manual Case Outputs & Inspection:</span>
-                <button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="toggleLiveCaseDetails()" id="liveDetailsToggleBtn">Hide Details</button>
-              </div>
-              <div id="liveCasesTable" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-code);">
-                <div style="padding: 12px; color: var(--text-muted); font-size: 11px; text-align: center;">Case outputs and command diagnostics will appear here live...</div>
               </div>
             </div>
           </div>
 
           <!-- SECTION 2: AUTOMATED PLATFORM GRADE (nusactl grade) -->
-          <div style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <strong style="font-size: 13px; color: var(--text-primary);">🚀 2. Automated Platform Grade (nusactl grade)</strong>
-                <span id="toolGradeStatusBadge" class="badge badge-skip">Awaiting nusactl...</span>
+          <div class="card card-compact">
+            <div class="card-header">
+              <div class="flex items-center gap-2">
+                <h3 class="card-title text-xs font-semibold text-gray-900">🚀 2. Automated Platform Grade (nusactl grade)</h3>
+                <span id="toolGradeStatusBadge" class="badge badge-xs badge-outline">Awaiting nusactl...</span>
               </div>
-              <div id="toolScoreBadge" style="font-size: 12px; font-weight: 700; color: var(--text-muted);">
+              <div id="toolScoreBadge" class="text-xs font-semibold text-gray-600">
                 Score: - / 100
               </div>
             </div>
 
-            <!-- nusactl Pass / Fail Badges Row -->
-            <div class="case-badge-grid">
-              <!-- nusactl Passed Cases Box -->
-              <div style="background: rgba(34, 197, 94, 0.08); border: 1px solid #22c55e; border-radius: 6px; padding: 10px 12px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                  <span style="font-size: 12px; font-weight: 700; color: #4ade80;">✅ nusactl Cases Passed:</span>
-                  <span id="toolPassedCountBadge" class="badge badge-pass" style="font-size: 11px;">0</span>
+            <div class="card-body flex flex-col gap-3">
+              <!-- nusactl Pass / Fail Badges Row -->
+              <div class="case-badge-grid">
+                <!-- nusactl Passed Cases Box -->
+                <div class="card p-3" style="background: var(--pass-bg); border-color: var(--pass-border);">
+                  <div class="flex justify-between items-center mb-1.5">
+                    <span class="text-xs font-semibold text-success">✅ nusactl Cases Passed:</span>
+                    <span id="toolPassedCountBadge" class="badge badge-xs badge-success badge-outline">0</span>
+                  </div>
+                  <div id="toolPassedCasesPills" class="flex flex-wrap gap-1.5 items-center" style="min-height: 22px;">
+                    <span class="text-xs text-gray-500">None yet</span>
+                  </div>
                 </div>
-                <div id="toolPassedCasesPills" style="display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; align-items: center;">
-                  <span style="font-size: 11px; color: var(--text-muted);">None yet</span>
+
+                <!-- nusactl Failed Cases Box -->
+                <div class="card p-3" style="background: var(--fail-bg); border-color: var(--fail-border);">
+                  <div class="flex justify-between items-center mb-1.5">
+                    <span class="text-xs font-semibold text-danger">❌ nusactl Cases Failed:</span>
+                    <span id="toolFailedCountBadge" class="badge badge-xs badge-danger badge-outline">0</span>
+                  </div>
+                  <div id="toolFailedCasesPills" class="flex flex-wrap gap-1.5 items-center" style="min-height: 22px;">
+                    <span class="text-xs text-gray-500">None yet</span>
+                  </div>
                 </div>
               </div>
 
-              <!-- nusactl Failed Cases Box -->
-              <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid #ef4444; border-radius: 6px; padding: 10px 12px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                  <span style="font-size: 12px; font-weight: 700; color: #f87171;">❌ nusactl Cases Failed:</span>
-                  <span id="toolFailedCountBadge" class="badge badge-fail" style="font-size: 11px;">0</span>
-                </div>
-                <div id="toolFailedCasesPills" style="display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; align-items: center;">
-                  <span style="font-size: 11px; color: var(--text-muted);">None yet</span>
-                </div>
+              <!-- nusactl Output Preview -->
+              <div id="toolGradeOutputContainer" class="kt-terminal p-3 overflow-y-auto" style="max-height: 150px;">
+                nusactl output preview will appear here upon Stage 4 completion...
               </div>
-            </div>
-
-            <!-- nusactl Output Preview -->
-            <div id="toolGradeOutputContainer" style="border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-code); padding: 10px 12px; font-family: var(--font-mono); font-size: 11px; color: #94a3b8; max-height: 140px; overflow-y: auto;">
-              nusactl output preview will appear here upon Stage 4 completion...
             </div>
           </div>
 
@@ -882,8 +1083,8 @@ async function loadLabMdForSelectedLab() {
     appState.customGradeJson = null;
 
     const modeBadge = appState.currentSolverMode === "challenge"
-      ? `<span class="badge badge-ai" style="margin-left: 6px; font-size: 10px;">🏆 Challenge Requirements Solver</span>`
-      : `<span class="badge badge-pass" style="margin-left: 6px; font-size: 10px;">📖 Guided Instruction Solver</span>`;
+      ? `<span class="badge badge-info" style="margin-left: 6px; font-size: 10px;">🏆 Challenge Requirements Solver</span>`
+      : `<span class="badge badge-success badge-outline" style="margin-left: 6px; font-size: 10px;">📖 Guided Instruction Solver</span>`;
     if (infoEl) infoEl.innerHTML = `<span style="color: #4ade80;">Source: ${escapeHtml(data.source)}</span> (${appState.currentLabMd.length} chars) ${modeBadge}`;
     if (previewEl) previewEl.textContent = appState.currentLabMd || "(No Lab Markdown available for this lab yet. Click 'Edit MD' to paste one.)";
     if (editorInput) editorInput.value = appState.currentLabMd;
@@ -926,7 +1127,7 @@ function renderLabGradePreview() {
 
   if (countBadge) {
     countBadge.textContent = `${cases.length} Cases`;
-    countBadge.className = cases.length > 0 ? "badge badge-pass" : "badge badge-skip";
+    countBadge.className = cases.length > 0 ? "badge badge-success badge-outline" : "badge badge-outline";
   }
 
   if (previewEl) {
@@ -1189,13 +1390,13 @@ async function executeGradingRun() {
   if (failedPillsEl) failedPillsEl.innerHTML = '<span style="font-size: 11px; color: var(--text-muted);">None yet</span>';
   if (liveTableEl) liveTableEl.innerHTML = '<div style="padding: 12px; color: var(--text-muted); font-size: 11px; text-align: center;">Awaiting test case execution...</div>';
   if (statsSummaryEl) {
-    statsSummaryEl.className = "badge badge-skip";
+    statsSummaryEl.className = "badge badge-outline";
     statsSummaryEl.textContent = "0 / 0 Cases";
   }
   if (overallPillEl) overallPillEl.textContent = "Awaiting manual execution...";
 
   if (toolStatusBadge) {
-    toolStatusBadge.className = "badge badge-skip";
+    toolStatusBadge.className = "badge badge-outline";
     toolStatusBadge.textContent = "Awaiting nusactl...";
   }
   if (toolScoreBadge) toolScoreBadge.textContent = "Score: - / 100";
@@ -1205,7 +1406,7 @@ async function executeGradingRun() {
   if (toolFailedPillsEl) toolFailedPillsEl.innerHTML = '<span style="font-size: 11px; color: var(--text-muted);">None yet</span>';
   if (toolOutputEl) toolOutputEl.innerHTML = '<div style="color: var(--text-muted); font-size: 11px;">nusactl output preview will appear here upon Stage 4 completion...</div>';
 
-  liveBadge.className = "badge badge-ai";
+  liveBadge.className = "badge badge-info";
   liveBadge.textContent = "Connecting...";
   logBox.innerHTML = `[${new Date().toISOString()}] Initializing ${workflow === '4step' ? '4-Step Automated Workflow' : 'Execution Run'}...\n`;
 
@@ -1236,7 +1437,7 @@ async function executeGradingRun() {
     const runId = data.run_id;
 
     logBox.innerHTML += `[${new Date().toISOString()}] Run registered: ${runId}\n[${new Date().toISOString()}] Subscribing to Server-Sent Events (SSE)...\n`;
-    liveBadge.className = "badge badge-ai";
+    liveBadge.className = "badge badge-info";
     liveBadge.textContent = "RUNNING";
     if (overallPillEl) overallPillEl.textContent = "Running...";
 
@@ -1259,7 +1460,7 @@ async function executeGradingRun() {
 
     sse.addEventListener("baseline_grade_complete", (e) => {
       const p = JSON.parse(e.data);
-      logBox.innerHTML += `  <span style="color: #94a3b8; font-weight: 600;">Initial Baseline Check:</span> <span class="badge ${p.verdict === 'PASS' ? 'badge-pass' : 'badge-fail'}">${p.verdict} (Unsolved)</span>\n`;
+      logBox.innerHTML += `  <span style="color: #94a3b8; font-weight: 600;">Initial Baseline Check:</span> <span class="badge ${p.verdict === 'PASS' ? 'badge-success badge-outline' : 'badge-danger badge-outline'}">${p.verdict} (Unsolved)</span>\n`;
       if (p.stdout) {
         const previewOut = p.stdout.trim().split('\n')[0];
         logBox.innerHTML += `  <span style="color: #64748b; font-size: 11px;">| ${escapeHtml(previewOut)}</span>\n`;
@@ -1340,7 +1541,7 @@ async function executeGradingRun() {
       logBox.innerHTML += `<span style="color: #38bdf8; font-weight: 700;">🚀 [TOOL GRADER] Executing platform tool: <code>${escapeHtml(p.cmd)}</code>...</span>\n`;
       logBox.scrollTop = logBox.scrollHeight;
       if (toolStatusBadge) {
-        toolStatusBadge.className = "badge badge-ai";
+        toolStatusBadge.className = "badge badge-info";
         toolStatusBadge.textContent = "Grading with nusactl...";
       }
       if (toolOutputEl) {
@@ -1363,7 +1564,7 @@ async function executeGradingRun() {
 
       // Update nusactl section in UI
       if (toolStatusBadge) {
-        toolStatusBadge.className = isPass ? "badge badge-pass" : "badge badge-fail";
+        toolStatusBadge.className = isPass ? "badge badge-success badge-outline" : "badge badge-danger badge-outline";
         toolStatusBadge.textContent = p.verdict;
       }
       const scoreVal = p.score !== undefined ? p.score : (isPass ? 100 : 0);
@@ -1379,9 +1580,9 @@ async function executeGradingRun() {
 
       if (toolPassedPillsEl) {
         if (toolPassedCases.length > 0) {
-          toolPassedPillsEl.innerHTML = toolPassedCases.map(c => `<span class="badge badge-pass" style="font-size: 11px; font-weight: 700;">Case ${c}</span>`).join(' ');
+          toolPassedPillsEl.innerHTML = toolPassedCases.map(c => `<span class="badge badge-success badge-outline" style="font-size: 11px; font-weight: 700;">Case ${c}</span>`).join(' ');
         } else if (isPass) {
-          toolPassedPillsEl.innerHTML = `<span class="badge badge-pass" style="font-size: 11px; font-weight: 700;">All Platform Checks Passed</span>`;
+          toolPassedPillsEl.innerHTML = `<span class="badge badge-success badge-outline" style="font-size: 11px; font-weight: 700;">All Platform Checks Passed</span>`;
         } else {
           toolPassedPillsEl.innerHTML = `<span style="font-size: 11px; color: var(--text-muted);">None</span>`;
         }
@@ -1389,9 +1590,9 @@ async function executeGradingRun() {
 
       if (toolFailedPillsEl) {
         if (toolFailedCases.length > 0) {
-          toolFailedPillsEl.innerHTML = toolFailedCases.map(c => `<span class="badge badge-fail" style="font-size: 11px; font-weight: 700;">Case ${c}</span>`).join(' ');
+          toolFailedPillsEl.innerHTML = toolFailedCases.map(c => `<span class="badge badge-danger badge-outline" style="font-size: 11px; font-weight: 700;">Case ${c}</span>`).join(' ');
         } else if (!isPass && toolPassedCases.length === 0) {
-          toolFailedPillsEl.innerHTML = `<span class="badge badge-fail" style="font-size: 11px; font-weight: 700;">Platform Grade Failed</span>`;
+          toolFailedPillsEl.innerHTML = `<span class="badge badge-danger badge-outline" style="font-size: 11px; font-weight: 700;">Platform Grade Failed</span>`;
         } else {
           toolFailedPillsEl.innerHTML = `<span style="font-size: 11px; color: var(--text-muted);">None</span>`;
         }
@@ -1430,20 +1631,20 @@ async function executeGradingRun() {
         if (passedCountEl) passedCountEl.textContent = passedCases.length;
         if (passedPillsEl) {
           if (passedCases.length === 1) passedPillsEl.innerHTML = '';
-          passedPillsEl.innerHTML += `<span class="badge badge-pass" style="font-size: 11px; font-weight: 700;" title="${escapeHtml(p.name)}">Case ${p.case_index}</span>`;
+          passedPillsEl.innerHTML += `<span class="badge badge-success badge-outline" style="font-size: 11px; font-weight: 700;" title="${escapeHtml(p.name)}">Case ${p.case_index}</span>`;
         }
       } else {
         failedCases.push(p.case_index);
         if (failedCountEl) failedCountEl.textContent = failedCases.length;
         if (failedPillsEl) {
           if (failedCases.length === 1) failedPillsEl.innerHTML = '';
-          failedPillsEl.innerHTML += `<span class="badge badge-fail" style="font-size: 11px; font-weight: 700;" title="${escapeHtml(p.name)}">Case ${p.case_index}</span>`;
+          failedPillsEl.innerHTML += `<span class="badge badge-danger badge-outline" style="font-size: 11px; font-weight: 700;" title="${escapeHtml(p.name)}">Case ${p.case_index}</span>`;
         }
       }
 
       if (statsSummaryEl) {
         const totalDone = passedCases.length + failedCases.length;
-        statsSummaryEl.className = failedCases.length === 0 ? "badge badge-pass" : "badge badge-fail";
+        statsSummaryEl.className = failedCases.length === 0 ? "badge badge-success badge-outline" : "badge badge-danger badge-outline";
         statsSummaryEl.textContent = `${passedCases.length} / ${totalDone} Passed`;
       }
 
@@ -1451,12 +1652,12 @@ async function executeGradingRun() {
       if (liveTableEl) {
         if (passedCases.length + failedCases.length === 1) liveTableEl.innerHTML = '';
         liveTableEl.innerHTML += `
-          <div style="border-bottom: 1px solid var(--border-color); padding: 8px 12px; font-family: var(--font-mono); font-size: 11px;">
+          <div id="live-case-row-${p.case_index}" style="border-bottom: 1px solid var(--border-color); padding: 8px 12px; font-family: var(--font-mono); font-size: 11px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
               <span style="font-weight: 700; color: #f8fafc;">Case ${p.case_index}: ${escapeHtml(p.name)}</span>
-              <span class="badge ${isPass ? 'badge-pass' : 'badge-fail'}">${p.verdict} (${p.duration_ms}ms)</span>
+              <span id="live-case-badge-${p.case_index}" class="badge ${isPass ? 'badge-success badge-outline' : 'badge-danger badge-outline'}">${p.verdict} (${p.duration_ms}ms)</span>
             </div>
-            <div style="color: #94a3b8; display: grid; gap: 2px;">
+            <div id="live-case-body-${p.case_index}" style="color: #94a3b8; display: grid; gap: 2px;">
               <div><strong style="color: #cbd5e1;">Exit Code:</strong> ${p.exit_code} | <strong style="color: #cbd5e1;">Expect:</strong> <code style="color: #38bdf8;">${escapeHtml(p.expect || '')}</code></div>
               <div><strong style="color: #cbd5e1;">Actual Output:</strong> <code style="color: ${isPass ? '#4ade80' : '#f87171'};">${escapeHtml(p.stdout || '(empty)')}</code></div>
               ${p.stderr ? `<div style="color: #f87171;"><strong>Stderr:</strong> ${escapeHtml(p.stderr)}</div>` : ''}
@@ -1468,19 +1669,107 @@ async function executeGradingRun() {
       }
     });
 
+    // AI Iterative Unsolved Case Solver (Post-`nusactl grade` Self-Healing & `nusactl grade` Validation) SSE listeners
+    sse.addEventListener("ai_remediation_round_start", (e) => {
+      const p = JSON.parse(e.data);
+      const caseList = (p.unsolved_cases || []).map(c => `Case ${c}`).join(", ");
+      logBox.innerHTML += `\n<div style="background: rgba(245, 158, 11, 0.16); border-left: 4px solid #f59e0b; padding: 8px 12px; margin: 10px 0 6px 0; border-radius: 4px; font-weight: 700; color: #fef3c7; font-size: 12px;">
+  🔧 [AI POST-NUSACTL CASE SOLVER — ROUND ${p.attempt}/${p.max_attempts}] Detected ${p.unsolved_count} unsolved case(s) after nusactl grade (${escapeHtml(caseList)}). Solving &amp; re-validating with nusactl grade...
+</div>\n`;
+      logBox.scrollTop = logBox.scrollHeight;
+    });
+
+    sse.addEventListener("ai_case_fix_start", (e) => {
+      const p = JSON.parse(e.data);
+      logBox.innerHTML += `<span style="color: #fbbf24; font-weight: 700;">🤖 [AI SOLVING CASE ${p.case_index}] ${escapeHtml(p.name)} — Executing ${p.fix_count} targeted remediation step(s)...</span>\n`;
+      if (Array.isArray(p.fix_commands)) {
+        p.fix_commands.forEach((cmdStr, idx) => {
+          logBox.innerHTML += `   <span style="color: #93c5fd; font-size: 11px;">[Fix ${idx + 1}]</span> <code style="color: #e2e8f0; font-size: 11px;">${escapeHtml(cmdStr)}</code>\n`;
+        });
+      }
+      logBox.scrollTop = logBox.scrollHeight;
+    });
+
+    sse.addEventListener("ai_case_ready_for_validation", (e) => {
+      const p = JSON.parse(e.data);
+      logBox.innerHTML += `   <span style="color: #a7f3d0; font-size: 11px;">✓ Case ${p.case_index} fix applied (ready for validation via <code>${escapeHtml(p.validate_cmd || 'nusactl grade')}</code>)</span>\n`;
+      logBox.scrollTop = logBox.scrollHeight;
+    });
+
+    sse.addEventListener("ai_nusactl_validation_start", (e) => {
+      const p = JSON.parse(e.data);
+      logBox.innerHTML += `<span style="color: #38bdf8; font-weight: 700;">🔍 [AI NUSACTL VALIDATION] Fixes complete! Validating solved state via <code>${escapeHtml(p.cmd)}</code> (Attempt ${p.attempt})...</span>\n`;
+      logBox.scrollTop = logBox.scrollHeight;
+    });
+
+    sse.addEventListener("ai_nusactl_validation_complete", (e) => {
+      const p = JSON.parse(e.data);
+      const ok = p.verdict === "PASS";
+      logBox.innerHTML += `  <span style="color: ${ok ? '#4ade80' : '#fbbf24'}; font-weight: 700;">[AI NUSACTL VALIDATION RESULT: ${p.verdict}]</span> Score: ${p.score}/100 &rarr; Status: ${p.status}\n`;
+      logBox.scrollTop = logBox.scrollHeight;
+    });
+
+    sse.addEventListener("ai_case_fix_complete", (e) => {
+      const p = JSON.parse(e.data);
+      const isSolved = p.verdict === "PASS" || p.status === "SOLVED";
+      const color = isSolved ? "#4ade80" : "#f87171";
+      logBox.innerHTML += `  <span style="color: ${color}; font-weight: 700;">${isSolved ? '✅' : '⚠️'} [CASE ${p.case_index} ${p.status}] ${escapeHtml(p.name)} &rarr; Validated by <code>${escapeHtml(p.validated_by || 'nusactl grade')}</code> (${p.verdict})</span>\n`;
+      logBox.scrollTop = logBox.scrollHeight;
+
+      if (isSolved) {
+        const fIdx = failedCases.indexOf(p.case_index);
+        if (fIdx !== -1) failedCases.splice(fIdx, 1);
+        if (!passedCases.includes(p.case_index)) passedCases.push(p.case_index);
+
+        if (passedCountEl) passedCountEl.textContent = passedCases.length;
+        if (failedCountEl) failedCountEl.textContent = failedCases.length;
+
+        if (passedPillsEl) {
+          passedPillsEl.innerHTML = passedCases.map(c => `<span class="badge badge-success badge-outline" style="font-size: 11px; font-weight: 700;">Case ${c} (SOLVED)</span>`).join(' ');
+        }
+        if (failedPillsEl) {
+          failedPillsEl.innerHTML = failedCases.length > 0
+            ? failedCases.map(c => `<span class="badge badge-danger badge-outline" style="font-size: 11px; font-weight: 700;">Case ${c}</span>`).join(' ')
+            : '<span style="font-size: 11px; color: var(--text-muted);">None (All Solved)</span>';
+        }
+        if (statsSummaryEl) {
+          const totalDone = passedCases.length + failedCases.length;
+          statsSummaryEl.className = failedCases.length === 0 ? "badge badge-success badge-outline" : "badge badge-danger badge-outline";
+          statsSummaryEl.textContent = `${passedCases.length} / ${totalDone} Passed (SOLVED)`;
+        }
+
+        const badgeEl = document.getElementById(`live-case-badge-${p.case_index}`);
+        if (badgeEl) {
+          badgeEl.className = "badge badge-success badge-outline";
+          badgeEl.textContent = "SOLVED / PASS";
+        }
+        const bodyEl = document.getElementById(`live-case-body-${p.case_index}`);
+        if (bodyEl && p.stdout !== undefined) {
+          bodyEl.innerHTML += `<div style="color: #4ade80; font-weight: 600;">✨ Remediated by AI Solver &amp; Validated via <code>${escapeHtml(p.validated_by || 'nusactl grade')}</code> &rarr; Actual: <code>${escapeHtml(p.stdout)}</code> (Status: SOLVED)</div>`;
+        }
+      }
+    });
+
+    sse.addEventListener("ai_remediation_complete", (e) => {
+      const p = JSON.parse(e.data);
+      const ok = Boolean(p.all_solved);
+      logBox.innerHTML += `<span style="color: ${ok ? '#4ade80' : '#fbbf24'}; font-weight: 700;">🎯 [AI CASE SOLVER COMPLETE] ${p.solved_count}/${p.total_count} cases now PASS (Validated via ${escapeHtml(p.validated_by || 'nusactl grade')}) — Status: ${ok ? 'SOLVED' : 'PARTIAL'}</span>\n\n`;
+      logBox.scrollTop = logBox.scrollHeight;
+    });
+
     sse.addEventListener("pipeline_complete", (e) => {
       const p = JSON.parse(e.data);
       const isPass = p.final_verdict === 'PASS';
       logBox.innerHTML += `\n<div style="background: rgba(34, 197, 94, 0.12); border: 1px solid #22c55e; border-radius: 6px; padding: 12px; margin-top: 10px;">
   <strong style="color: #4ade80; font-size: 13px;">🎉 4-STEP AUTOMATED PIPELINE COMPLETE</strong>
   <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px; font-size: 12px;">
-    <div>1. Baseline Pre-Grade: <span class="badge badge-fail">${escapeHtml(p.stage_1_baseline.verdict)}</span></div>
-    <div>2. Instructions Executed: <span class="badge badge-pass">${p.stage_2_instructions.steps_count} steps</span></div>
-    <div>3. Manual Bash Grade: <span class="badge ${p.stage_3_manual.verdict === 'PASS' ? 'badge-pass' : 'badge-fail'}">${p.stage_3_manual.score_passed}/${p.stage_3_manual.score_total} (${p.stage_3_manual.verdict})</span></div>
-    <div>4. Platform Tool Grade: <span class="badge ${p.stage_4_tool.verdict === 'PASS' ? 'badge-pass' : 'badge-fail'}">${p.stage_4_tool.verdict} (${escapeHtml(p.stage_4_tool.slug)})</span></div>
+    <div>1. Baseline Pre-Grade: <span class="badge badge-danger badge-outline">${escapeHtml(p.stage_1_baseline.verdict)}</span></div>
+    <div>2. Instructions Executed: <span class="badge badge-success badge-outline">${p.stage_2_instructions.steps_count} steps</span></div>
+    <div>3. Manual Bash Grade: <span class="badge ${p.stage_3_manual.verdict === 'PASS' ? 'badge-success badge-outline' : 'badge-danger badge-outline'}">${p.stage_3_manual.score_passed}/${p.stage_3_manual.score_total} (${p.stage_3_manual.verdict})</span></div>
+    <div>4. Platform Tool Grade: <span class="badge ${p.stage_4_tool.verdict === 'PASS' ? 'badge-success badge-outline' : 'badge-danger badge-outline'}">${p.stage_4_tool.verdict} (${escapeHtml(p.stage_4_tool.slug)})</span></div>
   </div>
   <div style="margin-top: 10px; font-weight: 700; color: #f8fafc; font-size: 13px;">
-    Overall Workflow Verdict: <span class="badge ${isPass ? 'badge-pass' : 'badge-fail'}" style="font-size: 13px;">${p.final_verdict}</span>
+    Overall Workflow Verdict: <span class="badge ${isPass ? 'badge-success badge-outline' : 'badge-danger badge-outline'}" style="font-size: 13px;">${p.final_verdict}</span>
   </div>
 </div>\n`;
       logBox.scrollTop = logBox.scrollHeight;
@@ -1488,7 +1777,7 @@ async function executeGradingRun() {
 
     sse.addEventListener("run_complete", (e) => {
       const p = JSON.parse(e.data);
-      liveBadge.className = p.lab_verdict === 'PASS' ? 'badge badge-pass' : 'badge badge-fail';
+      liveBadge.className = p.lab_verdict === 'PASS' ? 'badge badge-success badge-outline' : 'badge badge-danger badge-outline';
       liveBadge.textContent = p.lab_verdict;
 
       const pList = (p.passed_cases && p.passed_cases.length > 0) ? p.passed_cases.map(c => `Case ${c}`).join(", ") : (passedCases.length > 0 ? passedCases.map(c => `Case ${c}`).join(", ") : "None");
@@ -1518,13 +1807,13 @@ async function executeGradingRun() {
       logBox.scrollTop = logBox.scrollHeight;
 
       if (overallPillEl) {
-        overallPillEl.innerHTML = `<span class="badge ${p.lab_verdict === 'PASS' ? 'badge-pass' : 'badge-fail'}" style="font-size: 12px; font-weight: 700;">Manual: ${p.lab_verdict} (${p.score_passed}/${p.score_total})</span>`;
+        overallPillEl.innerHTML = `<span class="badge ${p.lab_verdict === 'PASS' ? 'badge-success badge-outline' : 'badge-danger badge-outline'}" style="font-size: 12px; font-weight: 700;">Manual: ${p.lab_verdict} (${p.score_passed}/${p.score_total})</span>`;
       }
       sse.close();
     });
   } catch (e) {
     logBox.innerHTML += `Error: ${e.message}\n`;
-    liveBadge.className = "badge badge-error";
+    liveBadge.className = "badge badge-warning badge-outline";
     liveBadge.textContent = "ERROR";
   }
 }
@@ -1542,25 +1831,25 @@ async function viewRunDetail(runId) {
     drawerTitle.textContent = `Run Detail: ${run.run_id}`;
     drawerContent.innerHTML = `
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; font-size: 13px;">
-        <div><strong>State:</strong> <span class="badge badge-skip">${run.state}</span></div>
-        <div><strong>Verdict:</strong> <span class="badge ${run.lab_verdict === 'PASS' ? 'badge-pass' : 'badge-fail'}">${run.lab_verdict}</span></div>
+        <div><strong>State:</strong> <span class="badge badge-outline">${run.state}</span></div>
+        <div><strong>Verdict:</strong> <span class="badge ${run.lab_verdict === 'PASS' ? 'badge-success badge-outline' : 'badge-danger badge-outline'}">${run.lab_verdict}</span></div>
         <div><strong>Score:</strong> ${run.score_passed} / ${run.score_total}</div>
         <div><strong>Validation:</strong> ${run.validation}</div>
       </div>
 
       <h4 style="font-size: 13px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px;">Case Results (${(run.results || []).length})</h4>
       ${(run.results || []).map(r => `
-        <div class="card" style="margin-bottom: 12px;">
+        <div class="card p-5" style="margin-bottom: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
             <strong>Case ${r.case_index}: ${escapeHtml(r.name)}</strong>
-            <span class="badge ${r.verdict === 'PASS' ? 'badge-pass' : (r.verdict === 'ERROR' ? 'badge-error' : 'badge-fail')}">${r.verdict}</span>
+            <span class="badge ${r.verdict === 'PASS' ? 'badge-success badge-outline' : (r.verdict === 'ERROR' ? 'badge-warning badge-outline' : 'badge-danger badge-outline')}">${r.verdict}</span>
           </div>
           <div style="font-size: 12px; margin-bottom: 4px;">Expect: <code>${escapeHtml(r.expect)}</code> | Actual: <code>${escapeHtml(r.actual)}</code></div>
           <pre class="code-block" style="margin-top: 6px;">${escapeHtml(r.stdout || '(no stdout)')}</pre>
         </div>
       `).join('')}
     `;
-    drawer.style.display = "block";
+    drawer.style.display = "flex";
   } catch (e) {
     showToast(`Failed to load run details: ${e.message}`);
   }
@@ -1585,7 +1874,7 @@ async function renderValidationMatrix() {
         </div>
       </div>
 
-      <table class="data-table">
+      <table class="data-table table align-middle text-gray-700 font-medium text-sm">
         <thead>
           <tr>
             <th>Lab</th>
@@ -1626,11 +1915,11 @@ async function renderValidationMatrix() {
 }
 
 function renderMatrixBadge(cell) {
-  if (!cell) return `<span class="badge badge-skip">NOT RUN</span>`;
+  if (!cell) return `<span class="badge badge-outline">NOT RUN</span>`;
   if (cell.result === "ok") {
-    return `<span class="badge badge-pass" title="${escapeHtml(cell.reason)}">✓ OK</span>`;
+    return `<span class="badge badge-success badge-outline" title="${escapeHtml(cell.reason)}">✓ OK</span>`;
   } else {
-    return `<span class="badge badge-fail" title="${escapeHtml(cell.reason)}">⚠ VIOLATION</span>`;
+    return `<span class="badge badge-danger badge-outline" title="${escapeHtml(cell.reason)}">⚠ VIOLATION</span>`;
   }
 }
 
@@ -1643,7 +1932,7 @@ async function renderCrossCheck() {
       <p style="color: var(--text-secondary); font-size: 12px;">Compares manual system checks against tool output. Disagreements are surfaced immediately.</p>
     </div>
 
-    <div class="card" style="border-left: 4px solid #4ade80; margin-bottom: 16px;">
+    <div class="card p-5" style="border-left: 4px solid #4ade80; margin-bottom: 16px;">
       <div style="font-weight: 700;">Cross-Check Engine Active</div>
       <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
         When runs are executed in 'both' mode, verdicts are matched per-case by index and name. Any discrepancy automatically offers 1-click promotion to Finding.
@@ -1699,10 +1988,10 @@ function renderFindingCard(f) {
   return `
     <div class="kanban-card">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-        <span class="badge ${f.priority === 'critical' ? 'badge-fail' : (f.priority === 'high' ? 'badge-error' : 'badge-skip')}">
+        <span class="badge ${f.priority === 'critical' ? 'badge-danger badge-outline' : (f.priority === 'high' ? 'badge-warning badge-outline' : 'badge-outline')}">
           ${f.priority}
         </span>
-        <span class="badge ${isConfirmed ? 'badge-pass' : 'badge-unconfirmed'}">
+        <span class="badge ${isConfirmed ? 'badge-success badge-outline' : 'badge-outline'}">
           ${isConfirmed ? 'Confirmed' : 'Unconfirmed'}
         </span>
       </div>
@@ -1710,7 +1999,7 @@ function renderFindingCard(f) {
       <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">Loc: ${escapeHtml(f.location)}</div>
       <div style="font-size: 12px; color: var(--text-secondary);">${escapeHtml(f.evidence || '')}</div>
       <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 10px;">
-        ${!isConfirmed ? `<button class="btn btn-secondary" style="font-size: 10px; padding: 2px 6px;" onclick="confirmFinding('${f.id}')">Confirm</button>` : ''}
+        ${!isConfirmed ? `<button class="btn btn-light" style="font-size: 10px; padding: 2px 6px;" onclick="confirmFinding('${f.id}')">Confirm</button>` : ''}
         ${f.status !== 'fixed' ? `<button class="btn btn-primary" style="font-size: 10px; padding: 2px 6px;" onclick="markFindingFixed('${f.id}')">Mark Fixed</button>` : ''}
       </div>
     </div>
@@ -1763,18 +2052,18 @@ async function renderAuditWorkspace() {
           <h2 style="font-size: 18px; font-weight: 700;">Course Audit Workspace (Section 7.11 / Course Baseline)</h2>
           <p style="color: var(--text-secondary); font-size: 12px;">Review modules against industry practice using closed status vocabulary and registered sources.</p>
         </div>
-        <button class="btn btn-secondary" onclick="exportAuditMarkdown()">Export Audit Document (Markdown)</button>
+        <button class="btn btn-light" onclick="exportAuditMarkdown()">Export Audit Document (Markdown)</button>
       </div>
 
       <div style="display: flex; flex-direction: column; gap: 16px;">
         ${audits.map(a => `
-          <div class="card">
+          <div class="card p-5">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
               <div>
                 <strong style="font-size: 15px;">Module Audit: ${a.ref} (${a.language.toUpperCase()})</strong>
-                <span class="badge badge-ai" style="margin-left: 8px;">${a.review_state}</span>
+                <span class="badge badge-info" style="margin-left: 8px;">${a.review_state}</span>
               </div>
-              <span class="badge badge-pass">${a.status_key}</span>
+              <span class="badge badge-success badge-outline">${a.status_key}</span>
             </div>
 
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px; font-size: 13px;">
@@ -1816,7 +2105,7 @@ function exportAuditMarkdown() {
 // ==================== 7.12 Test VMs & Credentials Management ====================
 async function renderTestVMs() {
   const container = document.getElementById("view-vms");
-  container.innerHTML = `<div style="color: var(--text-muted);">Loading Test VMs...</div>`;
+  container.innerHTML = `<div class="text-xs text-gray-500">Loading Test VMs...</div>`;
 
   try {
     const res = await fetch(`${API_BASE}/targets`);
@@ -1824,139 +2113,147 @@ async function renderTestVMs() {
     appState.targets = targets;
 
     container.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <div>
-          <h2 style="font-size: 18px; font-weight: 700;">Test VMs & Credentials Management</h2>
-          <p style="color: var(--text-secondary); font-size: 12px;">
-            Configure target lab virtual machines for grading execution, SSH authentication, and nusactl credentials.
-          </p>
-        </div>
-      </div>
-
       <div class="vms-layout-grid">
-        <!-- Add / Edit VM Form -->
-        <div class="card">
-          <h3 style="font-size: 14px; margin-bottom: 14px; color: var(--text-primary); text-transform: none; font-weight: 700;">
-            + Add / Configure Testing VM
-          </h3>
-
-          <div style="margin-bottom: 12px;">
-            <label style="display: block; font-size: 11px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">VM Name / Label:</label>
-            <input type="text" id="vmNameInput" placeholder="e.g. Lab Testing VM (Ubuntu 24.04)" style="width: 100%;">
+        <!-- Left: Add / Configure VM Form (Metronic Card) -->
+        <div class="card card-compact">
+          <div class="card-header">
+            <h3 class="card-title text-sm font-semibold text-gray-900">
+              <i class="ki-filled ki-data text-primary me-1.5"></i> Add / Configure Testing VM
+            </h3>
+            <span class="badge badge-xs badge-primary badge-outline">SSH + nusactl</span>
           </div>
 
-          <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px; margin-bottom: 12px;">
-            <div>
-              <label style="display: block; font-size: 11px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">IP Host / Hostname:</label>
-              <input type="text" id="vmHostInput" placeholder="192.168.10.50 or 127.0.0.1" style="width: 100%;">
+          <div class="card-body flex flex-col gap-3">
+            <div class="flex flex-col gap-1">
+              <label class="form-label text-xs text-gray-600 uppercase">VM Name / Label:</label>
+              <input type="text" id="vmNameInput" class="input input-sm" placeholder="e.g. Lab Testing VM (Ubuntu 24.04)">
             </div>
-            <div>
-              <label style="display: block; font-size: 11px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">Port:</label>
-              <input type="number" id="vmPortInput" value="22" style="width: 100%;">
-            </div>
-          </div>
 
-          <div style="border-top: 1px solid var(--border-color); padding-top: 12px; margin-top: 12px; margin-bottom: 12px;">
-            <h4 style="font-size: 12px; text-transform: uppercase; color: var(--accent-blue); margin-bottom: 8px;">1. SSH Credentials</h4>
-            <div style="margin-bottom: 10px;">
-              <label style="display: block; font-size: 11px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">SSH Username:</label>
-              <input type="text" id="vmUserInput" placeholder="e.g. student or root" style="width: 100%;">
-            </div>
-            <div>
-              <label style="display: block; font-size: 11px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">SSH Password:</label>
-              <div style="display: flex; gap: 6px;">
-                <input type="password" id="vmPassInput" placeholder="Enter SSH password" style="flex: 1;">
-                <button type="button" class="btn btn-secondary" onclick="togglePassVisibility('vmPassInput')">👁</button>
+            <div class="grid gap-2.5" style="grid-template-columns: 2fr 1fr;">
+              <div class="flex flex-col gap-1">
+                <label class="form-label text-xs text-gray-600 uppercase">IP Host / Hostname:</label>
+                <input type="text" id="vmHostInput" class="input input-sm font-mono" placeholder="192.168.10.50 or 127.0.0.1">
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="form-label text-xs text-gray-600 uppercase">Port:</label>
+                <input type="number" id="vmPortInput" class="input input-sm font-mono" value="22">
               </div>
             </div>
-          </div>
 
-          <div style="border-top: 1px solid var(--border-color); padding-top: 12px; margin-top: 12px; margin-bottom: 12px;">
-            <h4 style="font-size: 12px; text-transform: uppercase; color: var(--accent-blue); margin-bottom: 8px;">2. nusactl Tool Credentials</h4>
-            <div style="margin-bottom: 10px;">
-              <label style="display: block; font-size: 11px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">nusactl Username ($NUSA_USERNAME):</label>
-              <input type="text" id="vmNusaUserInput" placeholder="e.g. student or nusa" style="width: 100%;">
-            </div>
-            <div>
-              <label style="display: block; font-size: 11px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">nusactl Password:</label>
-              <div style="display: flex; gap: 6px;">
-                <input type="password" id="vmNusaPassInput" placeholder="Enter nusactl password" style="flex: 1;">
-                <button type="button" class="btn btn-secondary" onclick="togglePassVisibility('vmNusaPassInput')">👁</button>
+            <div class="border-t border-t-gray-200 dark:border-t-coal-100 pt-3 flex flex-col gap-2.5">
+              <span class="text-xs font-semibold text-primary uppercase">1. SSH Credentials</span>
+              <div class="flex flex-col gap-1">
+                <label class="form-label text-xs text-gray-600">SSH Username:</label>
+                <input type="text" id="vmUserInput" class="input input-sm font-mono" placeholder="e.g. student or root">
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="form-label text-xs text-gray-600">SSH Password:</label>
+                <div class="flex gap-1.5">
+                  <input type="password" id="vmPassInput" class="input input-sm flex-1" placeholder="Enter SSH password">
+                  <button type="button" class="btn btn-sm btn-icon btn-light" onclick="togglePassVisibility('vmPassInput')" title="Toggle password">👁</button>
+                </div>
               </div>
             </div>
+
+            <div class="border-t border-t-gray-200 dark:border-t-coal-100 pt-3 flex flex-col gap-2.5">
+              <span class="text-xs font-semibold text-primary uppercase">2. nusactl Tool Credentials</span>
+              <div class="flex flex-col gap-1">
+                <label class="form-label text-xs text-gray-600">nusactl Username (<code>$NUSA_USERNAME</code>):</label>
+                <input type="text" id="vmNusaUserInput" class="input input-sm font-mono" placeholder="e.g. student or nusa">
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="form-label text-xs text-gray-600">nusactl Password:</label>
+                <div class="flex gap-1.5">
+                  <input type="password" id="vmNusaPassInput" class="input input-sm flex-1" placeholder="Enter nusactl password">
+                  <button type="button" class="btn btn-sm btn-icon btn-light" onclick="togglePassVisibility('vmNusaPassInput')" title="Toggle password">👁</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="card p-3 bg-light-active">
+              <label class="checkbox-group cursor-pointer">
+                <input type="checkbox" id="vmModifiableInput" class="checkbox checkbox-sm" checked>
+                <span class="checkbox-label font-semibold text-xs text-gray-900">Allow VM State Modification (start/finish/solutions)</span>
+              </label>
+              <div class="text-2xs text-gray-500 mt-1">If unchecked, target is treated as immutable and all state-changing commands require operator gates.</div>
+            </div>
+
+            <div class="flex flex-col gap-1">
+              <label class="form-label text-xs text-gray-600 uppercase">Notes / Description:</label>
+              <input type="text" id="vmNotesInput" class="input input-sm" placeholder="e.g. Local runner testing VM">
+            </div>
+
+            <div id="connectionStatusBanner" style="display: none;"></div>
           </div>
 
-          <div style="margin-bottom: 16px;">
-            <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer;">
-              <input type="checkbox" id="vmModifiableInput" checked>
-              <span><strong>Allow VM State Modification (start/finish/solutions)</strong></span>
-            </label>
-            <div style="font-size: 11px; color: var(--text-muted); margin-left: 22px;">If unchecked, target is treated as immutable and all state-changing commands require operator gates.</div>
-          </div>
-
-          <div style="margin-bottom: 16px;">
-            <label style="display: block; font-size: 11px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">Notes / Description:</label>
-            <input type="text" id="vmNotesInput" placeholder="e.g. Local runner testing VM" style="width: 100%;">
-          </div>
-
-          <div style="display: flex; gap: 10px;">
-            <button class="btn btn-secondary" style="flex: 1; justify-content: center;" onclick="testInputVMConnection()">
+          <div class="card-footer flex gap-2.5">
+            <button class="btn btn-sm btn-light flex-1 justify-center" onclick="testInputVMConnection()">
               ⚡ Test Connection
             </button>
-            <button class="btn btn-primary" style="flex: 1; justify-content: center;" onclick="saveTestVM()">
+            <button class="btn btn-sm btn-primary flex-1 justify-center" onclick="saveTestVM()">
               Save VM Configuration
             </button>
           </div>
-          <div id="connectionStatusBanner" style="margin-top: 12px; display: none;"></div>
         </div>
 
-        <!-- List of Configured VMs -->
-        <div>
-          <h3 style="font-size: 14px; margin-bottom: 14px; color: var(--text-primary); text-transform: none; font-weight: 700;">
-            Configured Testing Environments (${targets.length})
-          </h3>
+        <!-- Right: List of Configured VMs -->
+        <div class="flex flex-col gap-3.5">
+          <div class="card card-compact">
+            <div class="card-header">
+              <h3 class="card-title text-sm font-semibold text-gray-900">
+                Configured Testing Environments
+              </h3>
+              <span class="badge badge-sm badge-primary badge-outline">${targets.length} Targets</span>
+            </div>
+          </div>
 
           ${targets.length === 0 ? `
-            <div class="card" style="text-align: center; padding: 40px 20px; color: var(--text-muted);">
-              No testing VMs configured yet. Use the form on the left to add your first VM.
+            <div class="card">
+              <div class="card-body py-10 text-center text-gray-500">
+                No testing VMs configured yet. Use the form on the left to add your first VM.
+              </div>
             </div>
           ` : `
-            <div style="display: flex; flex-direction: column; gap: 14px;">
+            <div class="flex flex-col gap-3.5">
               ${targets.map(t => `
-                <div class="card" style="border-left: 4px solid ${t.modifiable ? '#4ade80' : '#ef4444'};">
-                  <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
-                    <div>
-                      <strong style="font-size: 15px;">${escapeHtml(t.name)}</strong>
-                      <div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">
-                        Host: <code>${escapeHtml(t.host)}:${t.port || 22}</code> | SSH User: <code>${escapeHtml(t.user)}</code>
-                      </div>
-                    </div>
-                    <div style="display: flex; gap: 6px;">
-                      <span class="badge ${t.modifiable ? 'badge-pass' : 'badge-fail'}">
-                        ${t.modifiable ? 'MODIFIABLE' : 'IMMUTABLE'}
+                <div class="card card-compact">
+                  <div class="card-header">
+                    <div class="flex flex-col gap-0.5">
+                      <span class="text-sm font-semibold text-gray-900">${escapeHtml(t.name)}</span>
+                      <span class="text-xs text-gray-500 font-mono">
+                        Host: ${escapeHtml(t.host)}:${t.port || 22} | SSH User: ${escapeHtml(t.user)}
                       </span>
                     </div>
+                    <span class="badge badge-sm ${t.modifiable ? 'badge-success badge-outline' : 'badge-danger badge-outline'}">
+                      ${t.modifiable ? 'MODIFIABLE' : 'IMMUTABLE'}
+                    </span>
                   </div>
 
-                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; font-size: 12px; background-color: var(--bg-primary); padding: 10px; border-radius: 6px; margin-bottom: 12px;">
-                    <div>
-                      <strong>SSH Password:</strong> ${t.has_password ? '<span style="color: #4ade80;">✓ Configured</span>' : '<span style="color: var(--text-muted);">(None/Key only)</span>'}
-                    </div>
-                    <div>
-                      <strong>nusactl User:</strong> <code>${escapeHtml(t.nusactl_username || '(Not set)')}</code>
-                    </div>
-                    <div>
-                      <strong>nusactl Password:</strong> ${t.has_nusactl_password ? '<span style="color: #4ade80;">✓ Configured</span>' : '<span style="color: var(--text-muted);">(Not set)</span>'}
-                    </div>
-                    <div>
-                      <strong>Notes:</strong> ${escapeHtml(t.notes || 'None')}
+                  <div class="card-body">
+                    <div class="grid grid-cols-2 gap-2.5 text-xs">
+                      <div class="card p-2.5">
+                        <span class="text-2xs text-gray-500 uppercase">SSH Password</span>
+                        <span class="font-semibold ${t.has_password ? 'text-success' : 'text-gray-600'}">${t.has_password ? '✓ Configured' : '(None / Key only)'}</span>
+                      </div>
+                      <div class="card p-2.5">
+                        <span class="text-2xs text-gray-500 uppercase">nusactl User</span>
+                        <span class="font-mono font-semibold text-gray-900">${escapeHtml(t.nusactl_username || '(Not set)')}</span>
+                      </div>
+                      <div class="card p-2.5">
+                        <span class="text-2xs text-gray-500 uppercase">nusactl Password</span>
+                        <span class="font-semibold ${t.has_nusactl_password ? 'text-success' : 'text-gray-600'}">${t.has_nusactl_password ? '✓ Configured' : '(Not set)'}</span>
+                      </div>
+                      <div class="card p-2.5">
+                        <span class="text-2xs text-gray-500 uppercase">Notes</span>
+                        <span class="text-gray-700">${escapeHtml(t.notes || 'None')}</span>
+                      </div>
                     </div>
                   </div>
 
-                  <div style="display: flex; justify-content: flex-end; gap: 8px;">
-                    <button class="btn btn-secondary" onclick="testExistingVMConnection('${t.id}')">Test SSH Ping</button>
-                    <button class="btn btn-primary" onclick="setActiveTargetVM('${t.id}')">Set Active Target</button>
-                    <button class="btn btn-secondary" style="color: #f87171;" onclick="deleteTargetVM('${t.id}')">Delete</button>
+                  <div class="card-footer flex justify-end gap-2">
+                    <button class="btn btn-xs btn-light" onclick="testExistingVMConnection('${t.id}')">Test SSH Ping</button>
+                    <button class="btn btn-xs btn-primary" onclick="setActiveTargetVM('${t.id}')">Set Active Target</button>
+                    <button class="btn btn-xs btn-danger btn-outline" onclick="deleteTargetVM('${t.id}')">Delete</button>
                   </div>
                 </div>
               `).join('')}
@@ -1966,7 +2263,7 @@ async function renderTestVMs() {
       </div>
     `;
   } catch (e) {
-    container.innerHTML = `<div style="color: #ef4444;">Failed to load Test VMs: ${e.message}</div>`;
+    container.innerHTML = `<div class="text-danger">Failed to load Test VMs: ${e.message}</div>`;
   }
 }
 
@@ -1990,7 +2287,7 @@ async function testInputVMConnection() {
 
   const banner = document.getElementById("connectionStatusBanner");
   banner.style.display = "block";
-  banner.innerHTML = `<div class="card" style="border-left: 3px solid #38bdf8;">Testing connection to ${user}@${host}:${port}...</div>`;
+  banner.innerHTML = `<div class="card p-5" style="border-left: 3px solid #38bdf8;">Testing connection to ${user}@${host}:${port}...</div>`;
 
   try {
     const res = await fetch(`${API_BASE}/targets/test-connection`, {
@@ -2000,12 +2297,12 @@ async function testInputVMConnection() {
     });
     const data = await res.json();
     if (data.status === "ok") {
-      banner.innerHTML = `<div class="card" style="border-left: 3px solid #4ade80; color: #4ade80;">✓ ${escapeHtml(data.message)}</div>`;
+      banner.innerHTML = `<div class="card p-5" style="border-left: 3px solid #4ade80; color: #4ade80;">✓ ${escapeHtml(data.message)}</div>`;
     } else {
-      banner.innerHTML = `<div class="card" style="border-left: 3px solid #ef4444; color: #ef4444;">✕ ${escapeHtml(data.message)}</div>`;
+      banner.innerHTML = `<div class="card p-5" style="border-left: 3px solid #ef4444; color: #ef4444;">✕ ${escapeHtml(data.message)}</div>`;
     }
   } catch (e) {
-    banner.innerHTML = `<div class="card" style="border-left: 3px solid #ef4444; color: #ef4444;">Connection test failed: ${e.message}</div>`;
+    banner.innerHTML = `<div class="card p-5" style="border-left: 3px solid #ef4444; color: #ef4444;">Connection test failed: ${e.message}</div>`;
   }
 }
 
@@ -2150,7 +2447,7 @@ async function renderManifest() {
         </div>
       </div>
 
-      <div class="card" style="margin-bottom: 16px;">
+      <div class="card p-5" style="margin-bottom: 16px;">
         <h4 style="font-size: 12px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px;">Impact Search (FR-AUD-05 / Sec 9.5)</h4>
         <div style="display: flex; gap: 10px;">
           <input type="text" id="impactSearchInput" placeholder="Enter component or version (e.g. v1.28.2 or nginx)..." style="flex: 1;">
@@ -2159,7 +2456,7 @@ async function renderManifest() {
         <div id="impactResultsBox" style="margin-top: 10px; display: none;"></div>
       </div>
 
-      <table class="data-table">
+      <table class="data-table table align-middle text-gray-700 font-medium text-sm">
         <thead>
           <tr>
             <th>Component</th>
@@ -2179,11 +2476,11 @@ async function renderManifest() {
               <td><code>${escapeHtml(r.course_baseline)}</code></td>
               <td><strong style="color: #4ade80;">${escapeHtml(r.verified_stable)}</strong></td>
               <td>${r.channel} / ${r.arch || 'amd64'}</td>
-              <td><span class="badge badge-skip">${r.source_code || 'none'}</span></td>
+              <td><span class="badge badge-outline">${r.source_code || 'none'}</span></td>
               <td>${escapeHtml(r.decision || '')}</td>
               <td>${r.check_date}</td>
               <td>
-                <span class="badge ${r.status === 'verified' ? 'badge-pass' : 'badge-error'}">${r.status}</span>
+                <span class="badge ${r.status === 'verified' ? 'badge-success badge-outline' : 'badge-warning badge-outline'}">${r.status}</span>
               </td>
             </tr>
           `).join('')}
@@ -2247,7 +2544,7 @@ async function renderQuizzes() {
         <p style="color: var(--text-secondary); font-size: 12px;">Flags questions with absolute statements, default ports, and outdated vendor behaviors.</p>
       </div>
 
-      <table class="data-table">
+      <table class="data-table table align-middle text-gray-700 font-medium text-sm">
         <thead>
           <tr>
             <th>Quiz / Question ID</th>
@@ -2275,52 +2572,124 @@ async function renderQuizzes() {
 function renderReports() {
   const container = document.getElementById("view-reports");
   container.innerHTML = `
-    <div style="margin-bottom: 16px;">
-      <h2 style="font-size: 18px; font-weight: 700;">Reports & Exports (Section 7.17 / Sec 13)</h2>
-      <p style="color: var(--text-secondary); font-size: 12px;">Export Lab Reports, Course Audit Documents, JUnit XML for CI, and Patched Course Export.</p>
-    </div>
-
-    <div class="grid-cards">
-      <div class="card">
-        <h3>Lab Test Report (Markdown)</h3>
-        <p style="font-size: 12px; color: var(--text-secondary); margin: 8px 0;">Summary, case results, 3-state matrix, cross-check, findings, and JSON debug log.</p>
-        <button class="btn btn-primary" onclick="exportLabReport()">Download Markdown Report</button>
+    <div class="flex flex-col gap-5">
+      <div class="card card-compact">
+        <div class="card-header flex-wrap gap-2">
+          <div class="flex flex-col gap-0.5">
+            <h3 class="card-title text-base font-semibold text-gray-900">
+              <i class="ki-filled ki-chart-line text-primary me-1.5"></i> Reports &amp; Exports (Section 7.17 / Sec 13)
+            </h3>
+            <span class="text-xs text-gray-600">Export Lab Reports, Course Audit Documents, JUnit XML for CI, and Patched Course Export.</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="form-label text-xs text-gray-600" style="width: auto;">Select Lab:</label>
+            <select id="reportLabSelect" class="select select-sm" style="min-width: 240px;">
+              ${(appState.labs || []).map(l => `<option value="${l.id}">${escapeHtml(l.description)} (${l.chapter}.${l.part})</option>`).join('') || '<option value="">(No labs loaded)</option>'}
+            </select>
+          </div>
+        </div>
       </div>
 
-      <div class="card">
-        <h3>JUnit XML Export</h3>
-        <p style="font-size: 12px; color: var(--text-secondary); margin: 8px 0;">Test suite per lab, test case per grade check. ERROR mapped to error, FAIL to failure.</p>
-        <button class="btn btn-secondary" onclick="exportJUnitXml()">Download JUnit XML</button>
+      <div class="grid-cards">
+        <div class="card card-compact">
+          <div class="card-header">
+            <h3 class="card-title text-sm font-semibold text-gray-900">Lab Test Report</h3>
+            <span class="badge badge-xs badge-primary badge-outline">Markdown</span>
+          </div>
+          <div class="card-body text-xs text-gray-600">
+            Summary, case results, 3-state validation matrix, cross-check status, findings, and redacted debug logs.
+          </div>
+          <div class="card-footer">
+            <button class="btn btn-sm btn-primary w-full justify-center" onclick="exportLabReport()">
+              Download Markdown Report
+            </button>
+          </div>
+        </div>
+
+        <div class="card card-compact">
+          <div class="card-header">
+            <h3 class="card-title text-sm font-semibold text-gray-900">JUnit XML Export</h3>
+            <span class="badge badge-xs badge-info badge-outline">CI / XML</span>
+          </div>
+          <div class="card-body text-xs text-gray-600">
+            Standard JUnit XML test suite per lab and test case per grade check. ERROR mapped to error, FAIL to failure.
+          </div>
+          <div class="card-footer">
+            <button class="btn btn-sm btn-light w-full justify-center" onclick="exportJUnitXml()">
+              Download JUnit XML
+            </button>
+          </div>
+        </div>
+
+        <div class="card card-compact">
+          <div class="card-header">
+            <h3 class="card-title text-sm font-semibold text-gray-900">Course Audit Document</h3>
+            <span class="badge badge-xs badge-success badge-outline">Markdown</span>
+          </div>
+          <div class="card-body text-xs text-gray-600">
+            Full course audit document following Course Baseline Section 6 structure in the active content language.
+          </div>
+          <div class="card-footer">
+            <button class="btn btn-sm btn-primary w-full justify-center" onclick="exportAuditMarkdown()">
+              Download Audit Markdown
+            </button>
+          </div>
+        </div>
+
+        <div class="card card-compact">
+          <div class="card-header">
+            <h3 class="card-title text-sm font-semibold text-gray-900">Patched Course Export</h3>
+            <span class="badge badge-xs badge-warning badge-outline">JSON</span>
+          </div>
+          <div class="card-body text-xs text-gray-600">
+            Applies approved grader revisions only and generates a deterministic patched course export JSON package.
+          </div>
+          <div class="card-footer">
+            <button class="btn btn-sm btn-light w-full justify-center" onclick="exportPatchedCourseJson()">
+              Download Patched Export
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div class="card">
-        <h3>Course Audit Document (Markdown)</h3>
-        <p style="font-size: 12px; color: var(--text-secondary); margin: 8px 0;">Full audit document following Course Baseline Section 6 structure in selected language.</p>
-        <button class="btn btn-primary" onclick="exportAuditMarkdown()">Download Audit Markdown</button>
-      </div>
-
-      <div class="card">
-        <h3>Patched Course Export JSON</h3>
-        <p style="font-size: 12px; color: var(--text-secondary); margin: 8px 0;">Applies approved revisions only. Includes changes.md sidecar diff summary.</p>
-        <button class="btn btn-secondary" onclick="exportPatchedCourseJson()">Download Patched Export</button>
+      <!-- Secondary Audit & Verification Workspaces -->
+      <div class="card card-compact">
+        <div class="card-header">
+          <h3 class="card-title text-sm font-semibold text-gray-900">
+            <i class="ki-filled ki-element-11 text-primary me-1.5"></i> Audit &amp; Verification Sub-Views
+          </h3>
+          <span class="badge badge-xs badge-outline">Secondary Modules</span>
+        </div>
+        <div class="card-body flex flex-wrap gap-2">
+          <button class="btn btn-sm btn-light" onclick="switchView('overview')">Overview Metrics</button>
+          <button class="btn btn-sm btn-light" onclick="switchView('validation')">3-State Validation Matrix</button>
+          <button class="btn btn-sm btn-light" onclick="switchView('findings')">Findings &amp; Defects Board</button>
+          <button class="btn btn-sm btn-light" onclick="switchView('audit')">Course Audit Workspace</button>
+          <button class="btn btn-sm btn-light" onclick="switchView('manifest')">Version Manifest</button>
+          <button class="btn btn-sm btn-light" onclick="switchView('settings')">Activity Log &amp; Settings</button>
+        </div>
       </div>
     </div>
   `;
 }
 
 function exportLabReport() {
-  const firstLab = appState.labs[0];
-  if (firstLab) {
-    window.open(`${API_BASE}/reports/lab/${firstLab.id}?format=md`, "_blank");
+  const sel = document.getElementById("reportLabSelect");
+  const labId = (sel && sel.value) ? sel.value : (appState.labs[0] && appState.labs[0].id);
+  if (labId) {
+    window.open(`${API_BASE}/reports/lab/${labId}?format=md`, "_blank");
   } else {
     showToast("No lab available to export.");
   }
 }
 
 function exportJUnitXml() {
-  const firstLab = appState.labs[0];
-  if (firstLab) {
-    window.open(`${API_BASE}/reports/lab/${firstLab.id}?format=junit`, "_blank");
+  const sel = document.getElementById("reportLabSelect");
+  const labId = (sel && sel.value) ? sel.value : (appState.labs[0] && appState.labs[0].id);
+  if (labId) {
+    window.open(`${API_BASE}/reports/lab/${labId}?format=junit`, "_blank");
+  } else {
+    showToast("No lab available to export.");
   }
 }
 
@@ -2343,16 +2712,16 @@ async function renderSettings() {
         <p style="color: var(--text-secondary); font-size: 12px;">System settings, SSH targets, secret references, and immutable activity logs.</p>
       </div>
 
-      <div class="card" style="margin-bottom: 20px;">
+      <div class="card p-5" style="margin-bottom: 20px;">
         <h4 style="font-size: 13px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 10px;">Targets & SSH Configuration</h4>
         <div style="font-size: 12px; color: var(--text-secondary);">
           Targets configured: ${appState.targets.map(t => `<strong>${t.name}</strong> (${t.host}) [${t.modifiable ? 'MODIFIABLE' : 'IMMUTABLE'}]`).join(', ')}
         </div>
       </div>
 
-      <div class="card">
+      <div class="card p-5">
         <h4 style="font-size: 13px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 10px;">Activity Log (Immutable)</h4>
-        <table class="data-table">
+        <table class="data-table table align-middle text-gray-700 font-medium text-sm">
           <thead>
             <tr>
               <th>Timestamp</th>
@@ -2366,7 +2735,7 @@ async function renderSettings() {
             ${logs.map(l => `
               <tr>
                 <td><code>${l.created_at.substring(0, 19).replace('T', ' ')}</code></td>
-                <td><span class="badge badge-skip">${l.user_id}</span></td>
+                <td><span class="badge badge-outline">${l.user_id}</span></td>
                 <td><strong>${l.action}</strong></td>
                 <td>${l.entity_type} (${l.entity_id})</td>
                 <td><pre style="font-size: 10px; margin: 0;">${escapeHtml(l.after_value || '-')}</pre></td>
@@ -2383,11 +2752,11 @@ async function renderSettings() {
 
 // ==================== New Lab Modal Handlers ====================
 function openNewLabModal() {
-  document.getElementById("newLabModal").style.display = "flex";
+  ktShowModal("newLabModal");
 }
 
 function closeNewLabModal() {
-  document.getElementById("newLabModal").style.display = "none";
+  ktHideModal("newLabModal");
 }
 
 async function submitNewLab() {
@@ -2456,11 +2825,11 @@ let selectedZipBase64 = null;
 let selectedGradeJsonContent = null;
 
 function openImportModal() {
-  document.getElementById("importModal").style.display = "flex";
+  ktShowModal("importModal");
 }
 
 function closeImportModal() {
-  document.getElementById("importModal").style.display = "none";
+  ktHideModal("importModal");
   selectedZipBase64 = null;
   selectedGradeJsonContent = null;
   const zipInput = document.getElementById("importZipFileInput");
@@ -2642,7 +3011,7 @@ async function refreshCourseDropdown() {
 async function triggerAiGraderRemediation(autoApply = false) {
   const banner = document.getElementById("aiActionBanner");
   banner.style.display = "block";
-  banner.innerHTML = `<div class="card" style="border-left: 4px solid #8b5cf6;">AI Grading Test Agent is analyzing labs, modernizing checks, and generating log_cmd...</div>`;
+  banner.innerHTML = `<div class="card p-5" style="border-left: 4px solid #8b5cf6;">AI Grading Test Agent is analyzing labs, modernizing checks, and generating log_cmd...</div>`;
 
   try {
     const res = await fetch(`${API_BASE}/agents/remediate-grading`, {
@@ -2657,18 +3026,18 @@ async function triggerAiGraderRemediation(autoApply = false) {
     const data = await res.json();
 
     banner.innerHTML = `
-      <div class="card" style="border-left: 4px solid #8b5cf6; background: rgba(139, 92, 246, 0.08);">
+      <div class="card p-5" style="border-left: 4px solid #8b5cf6; background: rgba(139, 92, 246, 0.08);">
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <div>
             <strong style="color: #a78bfa; font-size: 14px;">✨ AI Grading Test Agent: Remediated ${data.total_cases_remediated} Checks</strong>
             <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
               Generated descriptive <code>log_cmd</code>, corrected typos (cho &rarr; echo), bounded timeouts, modernized commands (docker compose, ss, ip), and removed mutating verbs.
-              <span class="badge badge-ai" style="margin-left: 6px;">AI Proposed Revisions Created</span>
+              <span class="badge badge-info" style="margin-left: 6px;">AI Proposed Revisions Created</span>
             </div>
           </div>
           <div style="display: flex; gap: 8px;">
             ${!autoApply ? `<button class="btn btn-primary" onclick="triggerAiGraderRemediation(true)">Approve & Apply All AI Fixes</button>` : ''}
-            <button class="btn btn-secondary" onclick="document.getElementById('aiActionBanner').style.display='none'">Dismiss</button>
+            <button class="btn btn-light" onclick="document.getElementById('aiActionBanner').style.display='none'">Dismiss</button>
           </div>
         </div>
         <div style="margin-top: 10px; max-height: 220px; overflow-y: auto;">
@@ -2676,7 +3045,7 @@ async function triggerAiGraderRemediation(autoApply = false) {
             <div style="font-size: 12px; margin-bottom: 6px; padding: 6px 10px; background-color: var(--bg-tertiary); border-radius: 4px;">
               <strong>${escapeHtml(r.case_name)}</strong> &rarr;
               <code>${Object.keys(r.diff).join(', ')} updated</code>
-              <span class="badge badge-ai" style="font-size: 10px; float: right;">${r.status}</span>
+              <span class="badge badge-info" style="font-size: 10px; float: right;">${r.status}</span>
             </div>
           `).join('')}
         </div>
@@ -2692,7 +3061,7 @@ async function triggerAiGraderRemediation(autoApply = false) {
 async function triggerAiCourseUpdate() {
   const banner = document.getElementById("aiActionBanner");
   banner.style.display = "block";
-  banner.innerHTML = `<div class="card" style="border-left: 4px solid #10b981;">AI Course Update Agent is analyzing syllabus, updating modules, and drafting new industry modules...</div>`;
+  banner.innerHTML = `<div class="card p-5" style="border-left: 4px solid #10b981;">AI Course Update Agent is analyzing syllabus, updating modules, and drafting new industry modules...</div>`;
 
   try {
     const res = await fetch(`${API_BASE}/agents/update-course`, {
@@ -2707,16 +3076,16 @@ async function triggerAiCourseUpdate() {
     const data = await res.json();
 
     banner.innerHTML = `
-      <div class="card" style="border-left: 4px solid #10b981; background: rgba(16, 185, 129, 0.08);">
+      <div class="card p-5" style="border-left: 4px solid #10b981; background: rgba(16, 185, 129, 0.08);">
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <div>
             <strong style="color: #34d399; font-size: 14px;">🚀 AI Course Update Agent: Added New Industry-Standard Module</strong>
             <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
               Added <strong>Module 6: ${escapeHtml(data.new_module_title)}</strong> with 2 Submodules and <strong>${escapeHtml(data.new_lab_added)}</strong> adhering to Section 5 plain-language rules.
-              <span class="badge badge-ai" style="margin-left: 6px;">AI Proposed Draft</span>
+              <span class="badge badge-info" style="margin-left: 6px;">AI Proposed Draft</span>
             </div>
           </div>
-          <button class="btn btn-secondary" onclick="document.getElementById('aiActionBanner').style.display='none'">Dismiss</button>
+          <button class="btn btn-light" onclick="document.getElementById('aiActionBanner').style.display='none'">Dismiss</button>
         </div>
       </div>
     `;

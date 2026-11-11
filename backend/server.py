@@ -1275,8 +1275,24 @@ class AppRequestHandler(BaseHTTPRequestHandler):
     # ==================== Static Asset Serving ====================
 
     def handle_static_get(self, path):
-        if path in ["/", "", "/index.html"]:
-            file_path = os.path.join(FRONTEND_DIR, "index.html")
+        page_routes = {
+            "/": "index.html",
+            "": "index.html",
+            "/index.html": "index.html",
+            "/runs": "runs.html",
+            "/runs.html": "runs.html",
+            "/courses": "courses.html",
+            "/courses.html": "courses.html",
+            "/vms": "vms.html",
+            "/vms.html": "vms.html",
+            "/reports": "reports.html",
+            "/reports.html": "reports.html",
+        }
+        if path in page_routes:
+            target_file = page_routes[path]
+            file_path = os.path.join(FRONTEND_DIR, target_file)
+            if not os.path.exists(file_path):
+                file_path = os.path.join(FRONTEND_DIR, "index.html")
             content_type = "text/html; charset=utf-8"
         else:
             rel = path.lstrip("/")

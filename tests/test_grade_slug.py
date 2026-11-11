@@ -443,5 +443,157 @@ Pastikan seluruh perubahan telah dipush ke repository GitLab.
         self.assertIn("/home/ubuntu/app-challenge", combined)
         self.assertIn("2.0.0", combined)
 
+    def test_final_run_ai_solves_unsolved_cases_until_solved(self):
+        """Verify that if any cases remain unsolved during Final Run, AI iteratively solves them until status is SOLVED."""
+        from backend.ai_agent import synthesize_fix_for_unsolved_case
+        from backend.run_engine import run_lab
+
+        unsolved_case = {
+            "case_index": 2,
+            "name": "case 2 - Memeriksa annotated Git Tag v1.0.0 dan VERSION",
+            "cmd": 'cd ~/demo-repo && grep -Fq "1.0.0" VERSION && git -C ~/demo-repo tag -l -n1 v1.0.0 | grep -Fq "Release version 1.0.0" && echo 1 || echo 0',
+            "expect": "1",
+            "simulate_initial_unsolved": True
+        }
+        fixes = synthesize_fix_for_unsolved_case(unsolved_case, target={"user": "afifr"})
+        self.assertTrue(len(fixes) >= 2)
+        combined_fixes = "\n".join(fixes)
+        self.assertIn("1.0.0", combined_fixes)
+        self.assertIn("v1.0.0", combined_fixes)
+        self.assertIn("Release version 1.0.0", combined_fixes)
+
+        lab = {
+            "id": "final-remediation-lab",
+            "export_id": "final-remediation-lab",
+            "chapter": "009",
+            "part": "5",
+            "course": "glpc",
+            "description": "Lab 9.5 - Final Run Unsolved Remediation",
+            "vars": {},
+            "start": [],
+            "finish": [],
+            "grade": [
+                {
+                    "case_index": 1,
+                    "name": "case 1 - Check repo directory",
+                    "cmd": "test -d ~/demo-repo/.git && echo 1 || echo 0",
+                    "expect": "1"
+                },
+                unsolved_case
+            ],
+            "lab_md": "```console\n$ git init ~/demo-repo\n```"
+        }
+        target = {"id": "mock-vm", "host": "mock", "user": "afifr"}
+
+        events = []
+        def callback(event_type, payload):
+            events.append((event_type, payload))
+
+        res = run_lab(
+            run_id="test-final-auto-solve",
+            target=target,
+            lab=lab,
+            state="final",
+            workflow="4step",
+            event_callback=callback,
+            grade_slug="glpc-009-5"
+        )
+
+        event_types = [e[0] for e in events]
+        self.assertIn("ai_remediation_round_start", event_types)
+        self.assertIn("ai_case_fix_start", event_types)
+        self.assertIn("ai_case_ready_for_validation", event_types)
+        self.assertIn("ai_nusactl_validation_start", event_types)
+        self.assertIn("ai_nusactl_validation_complete", event_types)
+        self.assertIn("ai_case_fix_complete", event_types)
+        self.assertIn("ai_remediation_complete", event_types)
+
+        # Verify that AI solver triggers AFTER the initial nusactl grade (Stage 4) and validates using nusactl grade
+        first_tool_grade_idx = event_types.index("tool_grade_complete")
+        remediation_start_idx = event_types.index("ai_remediation_round_start")
+        nusactl_val_idx = event_types.index("ai_nusactl_validation_start")
+        self.assertGreater(remediation_start_idx, first_tool_grade_idx, "AI solver must run AFTER initial nusactl grade")
+        self.assertGreater(nusactl_val_idx, remediation_start_idx, "AI must validate using nusactl grade after solving")
+
+        self.assertEqual(res["verdict"], "PASS")
+        self.assertEqual(res["lab_status"], "SOLVED")
+        self.assertEqual(res["score_passed"], 2)
+        self.assertEqual(res["score_total"], 2)
+        self.assertEqual(len(res["remediation_history"]), 1)
+        self.assertEqual(res["remediation_history"][0]["case_index"], 2)
+        self.assertEqual(res["remediation_history"][0]["status"], "SOLVED")
+        self.assertEqual(res["remediation_history"][0]["validated_by"], "nusactl grade glpc-009-5")
+
+    def test_cli_repository_creation_from_instructions(self):
+        """Verify that repository creation instructions in markdown (GitLab or local Git) are detected and executed via CLI commands."""
+        from backend.ai_agent import (
+            detect_repository_creations,
+            build_gitlab_repo_create_cli_command,
+            extract_instructions_from_lab_md,
+            synthesize_steps_from_requirements
+        )
+
+        # 1. Guided lab with explicit GitLab project creation instructions (e.g. Lab 8.1 / Lab 8.2)
+        guided_md = """
+### Langkah Pengerjaan
+1. Buka browser dan login ke GitLab.
+2. Buat project baru pada GitLab dengan konfigurasi:
+   - **Project Name**: `shell-runner-lab`
+   - **Visibility Level**: `Public`
+3. Inisialisasi local repository pada server:
+```console
+$ mkdir ~/shell-runner && cd ~/shell-runner
+$ git init -b main
+$ git remote add origin https://gitlab.adinusa.id/operator/shell-runner-lab.git
+$ echo "# Shell Runner" > README.md
+$ git add . && git commit -m "initial commit"
+$ git push -u origin main
+```
+"""
+        detected = detect_repository_creations(guided_md, username="operator")
+        self.assertTrue(any(d["name"] == "shell-runner-lab" and d["type"] == "gitlab" for d in detected))
+
+        cli_cmd = build_gitlab_repo_create_cli_command("shell-runner-lab", username="operator", visibility="public")
+        self.assertIn("shell-runner-lab", cli_cmd)
+        self.assertIn("glab repo create", cli_cmd)
+        self.assertIn("curl", cli_cmd)
+        self.assertIn("gitlab.adinusa.id", cli_cmd)
+
+        steps = extract_instructions_from_lab_md(guided_md, target={"user": "operator"})
+        all_step_cmds = " ".join([s["cmd"] for s in steps])
+        self.assertIn("glab repo create", all_step_cmds)
+        self.assertIn("shell-runner-lab", all_step_cmds)
+
+        # 2. Local Git repository creation directive (e.g. Lab 4.1)
+        local_md = """
+### Petunjuk
+Inisialisasi repository Git pada direktori dasar-git-1.
+```console
+$ cd ~/dasar-git-1
+$ echo "test" > file1.txt
+```
+"""
+        local_detected = detect_repository_creations(local_md, username="operator")
+        self.assertTrue(any("dasar-git-1" in d["name"] and d["type"] == "local" for d in local_detected))
+
+        local_steps = extract_instructions_from_lab_md(local_md, target={"user": "operator"})
+        local_step_cmds = " ".join([s["cmd"] for s in local_steps])
+        self.assertIn("dasar-git-1", local_step_cmds)
+        self.assertIn("git", local_step_cmds)
+        self.assertIn("init", local_step_cmds)
+
+        # 3. Challenge Lab requirement with GitLab repository
+        challenge_md = """
+### Challenge Overview
+Kerjakan challenge berikut:
+- **Project Name**: `GitLab-[USERNAME_GITLAB]-Challenge`
+### CI/CD Requirements
+Pastikan pipeline CI/CD berjalan sukses.
+"""
+        challenge_steps = synthesize_steps_from_requirements(challenge_md, target={"user": "operator"})
+        challenge_cmds_str = " ".join(challenge_steps)
+        self.assertIn("glab repo create", challenge_cmds_str)
+        self.assertIn("GitLab-operator-Challenge", challenge_cmds_str)
+
 if __name__ == "__main__":
     unittest.main()

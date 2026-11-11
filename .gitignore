@@ -38,3 +38,6 @@ data/*.sqlite3
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local Metronic reference package (not part of the app)
+metronic-tailwind-html/

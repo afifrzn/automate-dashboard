@@ -258,7 +258,8 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
     from .ai_agent import (
         resolve_lab_markdown, extract_instructions_from_lab_md,
         execute_lab_instructions_agent, resolve_nusactl_grade_slug,
-        synthesize_cases_from_lab_md, is_challenge_lab
+        synthesize_cases_from_lab_md, is_challenge_lab,
+        solve_unsolved_cases_agent, synthesize_fix_for_unsolved_case
     )
 
     lab_md = lab.get("lab_md")
@@ -326,7 +327,7 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
         })
 
     # ==================== STAGE 2: Following Instructions / Solving Challenge (AI Solver) ====================
-    should_follow = follow_lab_md or (state == "solved") or (workflow == "4step")
+    should_follow = follow_lab_md or (state in ("solved", "final")) or (workflow == "4step")
     challenge_mode = is_challenge_lab(lab_md or "", lab=lab)
 
     if workflow == "4step":
@@ -402,8 +403,9 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
         start_time = time.time()
 
         if is_mock_target:
+            sim_state = "unsolved" if case.get("simulate_initial_unsolved") else ("solved" if should_follow else state)
             exit_code, stdout, stderr, log_out, log_code, log_status = simulate_case_execution(
-                cmd, expect, state=("solved" if should_follow else state), log_cmd=log_cmd, debug=debug, lab_desc=lab.get("description", "")
+                cmd, expect, state=sim_state, log_cmd=log_cmd, debug=debug, lab_desc=lab.get("description", "")
             )
         else:
             exit_code, stdout, stderr = execute_remote_ssh(target, cmd, env_vars=effective_vars)
@@ -463,9 +465,14 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
         case_results.append({
             "case_index": case_idx,
             "name": name,
+            "cmd": cmd,
+            "expect": expect,
+            "hint": hint,
             "verdict": verdict,
             "exit_code": exit_code,
             "stdout": clean_out,
+            "stderr": redacted_stderr,
+            "log_out": redacted_log,
             "duration_ms": duration_ms
         })
 
@@ -510,85 +517,117 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
         "cmd": tool_grade_cmd
     })
 
-    if is_mock_target:
-        if should_follow or state == "solved":
-            tool_exit = 0
-            tool_out = (
-                f"[-] Grading lab -> {target_grade_slug}\n"
-                f"    => case 1 - Verify system configuration [✓]\n"
-                f"    => case 2 - Verify files and permissions [✓]\n"
-                f"    => case 3 - Verify service status [✓]\n"
-                f"[✓] Yeay! you're completed the task\n"
-                f"[-] Score -> 100"
+    def _evaluate_tool_grade(is_retry_solved=False):
+        if is_mock_target:
+            has_initial_unsolved = (not is_retry_solved) and (
+                any(r["verdict"] != "PASS" for r in case_results)
+                or bool(lab.get("simulate_initial_nusactl_unsolved"))
             )
-            tool_err = ""
-            tool_verdict = "PASS"
+            if (should_follow or state in ("solved", "final")) and not has_initial_unsolved:
+                t_exit = 0
+                if cases:
+                    case_lines = "\n".join(
+                        f"    => {c.get('name', f'case {idx + 1}')} [✓]"
+                        for idx, c in enumerate(cases)
+                    )
+                else:
+                    case_lines = (
+                        "    => case 1 - Verify system configuration [✓]\n"
+                        "    => case 2 - Verify files and permissions [✓]\n"
+                        "    => case 3 - Verify service status [✓]"
+                    )
+                t_out = (
+                    f"[-] Grading lab -> {target_grade_slug}\n"
+                    f"{case_lines}\n"
+                    f"[✓] Yeay! you're completed the task\n"
+                    f"[-] Score -> 100"
+                )
+                t_err = ""
+                t_verdict = "PASS"
+            elif has_initial_unsolved and cases:
+                t_exit = 1
+                lines = []
+                for idx, c in enumerate(cases):
+                    c_idx = c.get("case_index", idx + 1)
+                    r_match = next((r for r in case_results if r["case_index"] == c_idx), None)
+                    mark = "✓" if (r_match and r_match["verdict"] == "PASS") else "x"
+                    lines.append(f"    => {c.get('name', f'case {c_idx}')} [{mark}]")
+                t_out = (
+                    f"[-] Grading lab -> {target_grade_slug}\n"
+                    + "\n".join(lines) + "\n"
+                    f"[x] Oh no! You didn't complete the task\n"
+                    f"[-] Score -> 0"
+                )
+                t_err = ""
+                t_verdict = "FAIL"
+            else:
+                t_exit = 1
+                t_out = (
+                    f"[-] Grading lab -> {target_grade_slug}\n"
+                    f"    => case 1 - Verify system configuration [x]\n"
+                    f"[x] Oh no! You didn't complete the task\n"
+                    f"[-] Score -> 0"
+                )
+                t_err = ""
+                t_verdict = "FAIL"
         else:
-            tool_exit = 1
-            tool_out = (
-                f"[-] Grading lab -> {target_grade_slug}\n"
-                f"    => case 1 - Verify system configuration [x]\n"
-                f"[x] Oh no! You didn't complete the task\n"
-                f"[-] Score -> 0"
+            t_exit, t_out, t_err = execute_remote_ssh(target, tool_grade_cmd, env_vars=effective_vars)
+            clean_t_out = re.sub(r'\x1b\[[0-9;]*m', '', t_out or "").lower()
+            has_f = (
+                "oh no" in clean_t_out or
+                "didn't complete" in clean_t_out or
+                "didnt complete" in clean_t_out or
+                "score -> 0" in clean_t_out or
+                "score: 0" in clean_t_out or
+                "[x]" in clean_t_out or
+                "fail" in clean_t_out or
+                t_exit != 0
             )
-            tool_err = ""
-            tool_verdict = "FAIL"
-    else:
-        tool_exit, tool_out, tool_err = execute_remote_ssh(target, tool_grade_cmd, env_vars=effective_vars)
-        clean_tool_out = re.sub(r'\x1b\[[0-9;]*m', '', tool_out or "").lower()
-        has_fail = (
-            "oh no" in clean_tool_out or
-            "didn't complete" in clean_tool_out or
-            "didnt complete" in clean_tool_out or
-            "score -> 0" in clean_tool_out or
-            "score: 0" in clean_tool_out or
-            "[x]" in clean_tool_out or
-            "fail" in clean_tool_out or
-            tool_exit != 0
-        )
-        has_pass = (
-            "100%" in clean_tool_out or
-            "all checks passed" in clean_tool_out or
-            "score -> 100" in clean_tool_out or
-            "score: 100" in clean_tool_out or
-            "congratulation" in clean_tool_out or
-            "selamat" in clean_tool_out or
-            (tool_exit == 0 and "passed" in clean_tool_out and not has_fail)
-        )
-        if has_pass and not has_fail:
-            tool_verdict = "PASS"
-        elif has_fail:
-            tool_verdict = "FAIL"
-        elif tool_exit == 0:
-            tool_verdict = "PASS"
-        else:
-            tool_verdict = "FAIL"
+            has_p = (
+                "100%" in clean_t_out or
+                "all checks passed" in clean_t_out or
+                "score -> 100" in clean_t_out or
+                "score: 100" in clean_t_out or
+                "congratulation" in clean_t_out or
+                "selamat" in clean_t_out or
+                (t_exit == 0 and "passed" in clean_t_out and not has_f)
+            )
+            if has_p and not has_f:
+                t_verdict = "PASS"
+            elif has_f:
+                t_verdict = "FAIL"
+            elif t_exit == 0:
+                t_verdict = "PASS"
+            else:
+                t_verdict = "FAIL"
 
-    # Parse individual test cases and numeric score from nusactl grade output
-    clean_raw_tool_out = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', tool_out or "")
-    tool_cases = []
-    tool_passed_cases = []
-    tool_failed_cases = []
-    for m in re.finditer(r'=>\s*(case\s*(\d+)[^\[\n]*?)\[\s*([^\]]+?)\s*\]', clean_raw_tool_out, re.IGNORECASE):
-        full_desc = m.group(1).strip()
-        case_num = int(m.group(2))
-        mark = m.group(3).strip()
-        is_pass = any(s in mark for s in ["✓", "v", "V", "OK", "ok", "pass", "PASS"]) and not any(f in mark for f in ["x", "X", "FAIL", "!"])
-        tool_cases.append({
-            "case_index": case_num,
-            "name": full_desc,
-            "verdict": "PASS" if is_pass else "FAIL",
-            "mark": mark
-        })
-        if is_pass:
-            tool_passed_cases.append(case_num)
-        else:
-            tool_failed_cases.append(case_num)
+        clean_raw = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', t_out or "")
+        t_cases = []
+        t_passed = []
+        t_failed = []
+        for m in re.finditer(r'=>\s*(case\s*(\d+)[^\[\n]*?)\[\s*([^\]]+?)\s*\]', clean_raw, re.IGNORECASE):
+            full_desc = m.group(1).strip()
+            case_num = int(m.group(2))
+            mark = m.group(3).strip()
+            is_pass = any(s in mark for s in ["✓", "v", "V", "OK", "ok", "pass", "PASS"]) and not any(f in mark for f in ["x", "X", "FAIL", "!"])
+            t_cases.append({
+                "case_index": case_num,
+                "name": full_desc,
+                "verdict": "PASS" if is_pass else "FAIL",
+                "mark": mark
+            })
+            if is_pass:
+                t_passed.append(case_num)
+            else:
+                t_failed.append(case_num)
 
-    score_match = re.search(r'Score\s*->\s*(\d+)', clean_raw_tool_out, re.IGNORECASE)
-    if not score_match:
-        score_match = re.search(r'Score\s*[:=]\s*(\d+)', clean_raw_tool_out, re.IGNORECASE)
-    tool_score = int(score_match.group(1)) if score_match else (100 if tool_verdict == "PASS" else 0)
+        sc_match = re.search(r'Score\s*->\s*(\d+)', clean_raw, re.IGNORECASE)
+        if not sc_match:
+            sc_match = re.search(r'Score\s*[:=]\s*(\d+)', clean_raw, re.IGNORECASE)
+        t_score = int(sc_match.group(1)) if sc_match else (100 if t_verdict == "PASS" else 0)
+        return t_exit, t_out, t_err, t_verdict, t_score, t_cases, t_passed, t_failed
+
+    tool_exit, tool_out, tool_err, tool_verdict, tool_score, tool_cases, tool_passed_cases, tool_failed_cases = _evaluate_tool_grade(is_retry_solved=False)
 
     emit_event("tool_grade_complete", {
         "slug": target_grade_slug,
@@ -602,6 +641,61 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
         "passed_cases": tool_passed_cases,
         "failed_cases": tool_failed_cases
     })
+
+    # ==================== Post-`nusactl grade` AI Unsolved Case Solver & `nusactl grade` Validation ====================
+    remediation_history = []
+    has_unsolved_after_nusactl = (
+        tool_verdict != "PASS"
+        or bool(tool_failed_cases)
+        or any(r["verdict"] != "PASS" for r in case_results)
+    )
+    if should_follow and has_unsolved_after_nusactl:
+        case_results, rem_hist, latest_tool_tuple = solve_unsolved_cases_agent(
+            target=target,
+            cases=cases,
+            case_results=case_results,
+            lab=lab,
+            lab_md=lab_md or "",
+            env_vars=effective_vars,
+            is_mock=is_mock_target,
+            event_callback=emit_event,
+            max_attempts=3,
+            grade_slug=target_grade_slug,
+            tool_cases=tool_cases,
+            evaluate_tool_grade_fn=_evaluate_tool_grade
+        )
+        remediation_history.extend(rem_hist)
+        if latest_tool_tuple is not None:
+            tool_exit, tool_out, tool_err, tool_verdict, tool_score, tool_cases, tool_passed_cases, tool_failed_cases = latest_tool_tuple
+
+        # Persist remediated case results and debug logs to database
+        for r_item in case_results:
+            if r_item.get("remediated"):
+                c.execute("""
+                    UPDATE case_results
+                    SET actual = ?, verdict = ?, cmd_exit_code = ?, stdout = ?, stderr = ?
+                    WHERE run_id = ? AND case_index = ?
+                """, (
+                    r_item.get("stdout", ""),
+                    r_item["verdict"],
+                    r_item.get("exit_code", 0),
+                    r_item.get("stdout", ""),
+                    r_item.get("stderr", ""),
+                    run_id,
+                    r_item["case_index"]
+                ))
+                c.execute("""
+                    UPDATE debug_logs
+                    SET diagnosis = ?,
+                        likely_cause = NULL,
+                        suggested_fix = NULL
+                    WHERE run_id = ? AND case_index = ?
+                """, (f"Solved by AI Case Remediation Agent and validated via nusactl grade {target_grade_slug}.", run_id, r_item["case_index"]))
+
+        passed_count = sum(1 for r in case_results if r["verdict"] == "PASS")
+        passed_case_indices = [r["case_index"] for r in case_results if r["verdict"] == "PASS"]
+        failed_case_indices = [r["case_index"] for r in case_results if r["verdict"] != "PASS"]
+        manual_verdict = "PASS" if (passed_count == total_count and total_count > 0) else ("FAIL" if total_count > 0 else "PASS")
 
     if workflow == "4step":
         final_pipeline_verdict = "PASS" if (manual_verdict == "PASS" and tool_verdict == "PASS") else ("FAIL" if (manual_verdict == "FAIL" or tool_verdict == "FAIL") else manual_verdict)
@@ -625,13 +719,16 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
                 "passed_cases": tool_passed_cases,
                 "failed_cases": tool_failed_cases
             },
+            "remediation_history": remediation_history,
             "final_verdict": final_pipeline_verdict,
+            "lab_status": "SOLVED" if final_pipeline_verdict == "PASS" else "UNSOLVED",
             "passed_cases": passed_case_indices,
             "failed_cases": failed_case_indices
         })
 
     # Overall lab verdict
     lab_verdict = "PASS" if (passed_count == total_count and total_count > 0) else "FAIL"
+    lab_status = "SOLVED" if lab_verdict == "PASS" else "UNSOLVED"
 
     # Validation message based on state rules (Section 7.8)
     if state == "unsolved":
@@ -657,7 +754,7 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
             val_reason = "Violation: grader failed to catch near-miss scenario"
     else:
         val_result = "ok"
-        val_reason = f"Final run verdict: {lab_verdict}"
+        val_reason = f"Final run verdict: {lab_verdict} ({lab_status})"
 
     ended_at = datetime.now(timezone.utc).isoformat()
 
@@ -686,12 +783,14 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
         "run_id": run_id,
         "status": "completed",
         "lab_verdict": lab_verdict,
+        "lab_status": lab_status,
         "score_passed": passed_count,
         "score_total": total_count,
         "validation": val_reason,
         "passed_cases": passed_case_indices,
         "failed_cases": failed_case_indices,
         "case_results": case_results,
+        "remediation_history": remediation_history,
         "tool_grade": {
             "verdict": tool_verdict,
             "score": tool_score,
@@ -704,7 +803,9 @@ def run_lab(run_id, target, lab, state="unsolved", mode="manual", user_vars=None
     return {
         "run_id": run_id,
         "verdict": lab_verdict,
+        "lab_status": lab_status,
         "score_passed": passed_count,
         "score_total": total_count,
-        "validation": val_reason
+        "validation": val_reason,
+        "remediation_history": remediation_history
     }
